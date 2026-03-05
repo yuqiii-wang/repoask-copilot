@@ -19,3 +19,4 @@ data
 .venv
 local-store
 nohup.out
+.github/prompts

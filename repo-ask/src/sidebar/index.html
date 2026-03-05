@@ -158,8 +158,10 @@
 
         function renderSyncStatus(message) {
             const text = String(message || '').trim();
+            const isDownloadingFromSource = text.toLowerCase().includes('downloading from');
             syncStatusEl.textContent = text;
             syncStatusEl.classList.toggle('visible', text.length > 0);
+            syncStatusEl.classList.toggle('loading', isDownloadingFromSource);
         }
 
         function escapeHtml(value) {

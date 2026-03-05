@@ -42,8 +42,37 @@ body {
     display: none;
 }
 
+.sync-status.loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sync-status.loading::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--vscode-descriptionForeground);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: repoask-spin 0.8s linear infinite;
+}
+
 .sync-status.visible {
     display: block;
+}
+
+.sync-status.visible.loading {
+    display: inline-flex;
+}
+
+@keyframes repoask-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .search-input {

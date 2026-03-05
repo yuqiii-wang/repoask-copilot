@@ -179,8 +179,8 @@ function createLanguageModelTools(deps) {
         return [refreshTool, annotateTool, rankTool, checkTool];
     }
 
-    async function handleRefreshFromSource(sourceInput, response) {
-        const parsed = await parseRefreshArg(vscode, sourceInput);
+    async function handleRefreshFromSource(sourceInput, response, options = {}) {
+        const parsed = await parseRefreshArg(vscode, sourceInput, options);
 
         if (parsed.found && parsed.source === 'regex-jira') {
             response.markdown(`Refreshing Jira issue for: ${parsed.arg}...`);

@@ -2,7 +2,7 @@
 name: project-agent
 description: Project implementation and maintenance agent for the local Confluence simulator and the @RepoAsk VS Code extension.
 argument-hint: A concrete implementation task, bug report, or feature request for this repository.
-tools: [vscode, execute, read, agent, edit, search, web, todo]
+tools: [vscode, execute, read, agent, edit, search, web, todo, repo-ask.repo-ask/repoaskRefresh, repo-ask.repo-ask/repoaskAnnotate, repo-ask.repo-ask/repoaskRank, repo-ask.repo-ask/repoaskCheck]
 ---
 This agent is responsible for end-to-end work in this repository, including the FastAPI dummy Confluence server, the VS Code extension `@RepoAsk`, and supporting tokenization utilities.
 

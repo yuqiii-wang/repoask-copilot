@@ -18,10 +18,11 @@ const {
     writeDocumentFiles
 } = require('./storage');
 const { findRelevantDocuments, rankDocumentsByIdf } = require('./relevance');
-const { selectToolAndArg, parseRefreshArg } = require('./extension/llm');
+const { parseRefreshArg } = require('./extension/llm');
 const { createDocumentService } = require('./extension/documentService');
 const { createSidebarController } = require('./extension/sidebarController');
 const { createLanguageModelTools } = require('./extension/lmTools');
+const { loadWorkspacePromptContext } = require('./extension/promptContext');
 
 const EMPTY_STORE_HINT = 'No local documents found. Run `@repoask refresh` to sync to Confluence Cloud.';
 const TOOL_NAMES = {
@@ -30,6 +31,77 @@ const TOOL_NAMES = {
     rank: 'repoask_rank',
     check: 'repoask_check'
 };
+
+const LLM_RESPONSE_TIMEOUT_MS = 30000;
+
+async function withTimeout(promise, timeoutMs, timeoutValue = null) {
+    let timeoutId;
+    const timeoutPromise = new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve(timeoutValue), timeoutMs);
+    });
+
+    try {
+        return await Promise.race([promise, timeoutPromise]);
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptContext, response) {
+    if (!vscodeApi.lm || !vscodeApi.LanguageModelChatMessage) {
+        response.markdown('No language model is available in this VS Code session.');
+        return;
+    }
+
+    const models = await withTimeout(vscodeApi.lm.selectChatModels({}), LLM_RESPONSE_TIMEOUT_MS, []);
+    const model = models?.[0];
+    if (!model) {
+        response.markdown('No language model is available in this VS Code session.');
+        return;
+    }
+
+    const contextText = String(workspacePromptContext || '').trim();
+    const instruction = [
+        'You are RepoAsk. Answer the user question using the provided markdown prompt context when possible.',
+        'If the answer is not present in the provided context, clearly say so and provide the best possible guidance.',
+        contextText
+            ? `Workspace markdown prompt context:\n${contextText}`
+            : 'Workspace markdown prompt context: (none found under .github/prompts)',
+        `User question: ${prompt}`
+    ].join('\n\n');
+
+    const modelResponse = await withTimeout(model.sendRequest([
+        vscodeApi.LanguageModelChatMessage.User(instruction)
+    ]), LLM_RESPONSE_TIMEOUT_MS, null);
+
+    if (!modelResponse || !modelResponse.text) {
+        response.markdown('No answer returned by the language model.');
+        return;
+    }
+
+    let output = '';
+    for await (const fragment of modelResponse.text) {
+        output += fragment;
+    }
+
+    response.markdown(output.trim() || 'No answer returned by the language model.');
+}
+
+function isRefreshPrompt(prompt) {
+    const lowered = String(prompt || '').toLowerCase();
+    return lowered.includes('refresh')
+        || lowered.includes('sync')
+        || lowered.includes('download')
+        || lowered.includes('fetch')
+        || lowered.includes('pull')
+        || lowered.includes('import')
+        || lowered.includes('update')
+        || lowered.includes('confluence')
+        || lowered.includes('jira')
+        || /https?:\/\//i.test(prompt)
+        || /(?:pageid=|\b)\d{1,8}(?:\b|$)/i.test(prompt)
+        || /[A-Z][A-Z0-9_]+-\d+/i.test(prompt);
+}
 
 function setupExtension(context) {
     const storagePath = ensureStoragePath(context);
@@ -151,7 +223,7 @@ function setupExtension(context) {
             sidebar.setSidebarSyncStatus('');
             if (arg && arg.trim().length > 0) {
                 const parsed = await parseRefreshArg(vscode, arg.trim());
-                sidebar.setSidebarSyncStatus('downloading from confluence cloud ...');
+                sidebar.setSidebarSyncStatus('downloading from confluence/jira cloud ...');
                 if (parsed.found && parsed.source === 'regex-jira') {
                     await documentService.refreshJiraIssue(parsed.arg);
                     vscode.window.showInformationMessage(`Refreshed Jira issue for: ${parsed.arg}`);
@@ -161,7 +233,7 @@ function setupExtension(context) {
                     vscode.window.showInformationMessage(`Refreshed document for: ${resolvedArg}`);
                 }
             } else {
-                const downloadingMessage = 'downloading from confluence cloud ...';
+                const downloadingMessage = 'downloading from confluence/jira cloud ...';
                 vscode.window.showInformationMessage(downloadingMessage);
                 sidebar.setSidebarSyncStatus(downloadingMessage);
                 await documentService.refreshAllDocuments();
@@ -244,10 +316,19 @@ function setupExtension(context) {
     if (vscode.chat && typeof vscode.chat.createChatParticipant === 'function') {
         repoAskParticipant = vscode.chat.createChatParticipant('repoask', async (request, chatContext, response) => {
             const prompt = request.prompt?.trim() || '';
+            const workspacePromptContext = loadWorkspacePromptContext(vscode);
+            const llmOptions = {
+                workspacePromptContext: workspacePromptContext.text
+            };
+
+            if (!prompt) {
+                response.markdown('Ask a question, or use `refresh` to sync content.');
+                return;
+            }
 
             if (prompt.toLowerCase().startsWith('refresh')) {
                 const refreshSource = prompt.replace(/^refresh\s*/i, '').trim();
-                await lmTools.handleRefreshFromSource(refreshSource || prompt, response);
+                await lmTools.handleRefreshFromSource(refreshSource || prompt, response, llmOptions);
                 return;
             }
 
@@ -259,51 +340,15 @@ function setupExtension(context) {
                 return;
             }
 
-            const decision = await selectToolAndArg(vscode, prompt);
-
-            if (decision && decision.tool === 'refresh') {
-                await lmTools.handleRefreshFromSource(decision.arg || prompt, response);
+            if (isRefreshPrompt(prompt)) {
+                await lmTools.handleRefreshFromSource(prompt, response, llmOptions);
                 return;
             }
 
-            if (decision && decision.tool === 'annotate') {
-                response.markdown(`Annotating documents for: ${decision.arg || '(all)'}...`);
-                await vscode.commands.executeCommand('repo-ask.annotate', decision.arg || '');
-                response.markdown('Annotation completed.');
-                return;
-            }
-
-            if (decision && decision.tool === 'rank') {
-                const ranked = documentService.rankLocalDocuments(decision.arg || prompt, 5);
-                if (!ranked || ranked.length === 0) {
-                    response.markdown('No matching local documents found for the query.');
-                    return;
-                }
-                const lines = ranked.map((d, i) => `${i + 1}. **${d.title}** (score ${d.score.toFixed(2)})`);
-                response.markdown(`Top ranked results:\n\n${lines.join('\n')}`);
-                return;
-            }
-
-            const metadataList = readAllMetadata(storagePath);
-            if (metadataList.length === 0) {
-                response.markdown(EMPTY_STORE_HINT);
-                return;
-            }
-
-            const relevantDocs = findRelevantDocuments(prompt, metadataList, tokenize);
-            if (relevantDocs.length === 0) {
-                response.markdown('No relevant documents found in local store. Try `RepoAsk: Refresh` first.');
-                return;
-            }
-
-            const top = relevantDocs[0];
-            const content = readDocumentContent(storagePath, top.id) || '';
-
-            response.markdown(`Top match: **${top.title}** by ${top.author} (updated ${top.last_updated})`);
-            response.markdown(`Summary: ${top.summary || 'No summary available'}`);
-            response.markdown(`Keywords: ${(top.keywords || []).join(', ')}`);
-            if (content) {
-                response.markdown(`Reference:\n\n${truncate(content, 1200)}`);
+            try {
+                await answerGeneralPromptQuestion(vscode, prompt, workspacePromptContext.text, response);
+            } catch (error) {
+                response.markdown(`Unable to answer with prompt context: ${error.message}`);
             }
         });
 

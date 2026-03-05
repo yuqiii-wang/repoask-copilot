@@ -57,10 +57,13 @@ async function withTimeout(promise, timeoutMs, timeoutValue = null) {
     }
 }
 
-async function selectToolAndArg(vscode, prompt) {
+async function selectToolAndArg(vscode, prompt, options = {}) {
     if (!prompt || String(prompt).trim().length === 0) {
         return { tool: 'none' };
     }
+
+    const workspacePromptContext = String(options.workspacePromptContext || '').trim();
+    const boundedPromptContext = workspacePromptContext.slice(0, 12000);
 
     if (vscode.lm && vscode.LanguageModelChatMessage) {
         try {
@@ -72,6 +75,9 @@ async function selectToolAndArg(vscode, prompt) {
                     'Return only valid JSON with shape: {"tool":"refresh|annotate|rank|check|none","arg":"..."}.',
                     'Choose `refresh` when the user asks to refresh, sync, download, pull, fetch, import, or update docs/issues from Confluence or Jira.',
                     'For `refresh`, extract a Jira issue key/id/link or a Confluence page id/title/link into `arg` when present.',
+                    boundedPromptContext
+                        ? `Workspace prompt context:\n${boundedPromptContext}`
+                        : 'Workspace prompt context: (none)',
                     'Analyze the user text and decide which tool is most appropriate. If uncertain, choose `check` and put the user query into `arg`.',
                     `User query: ${prompt}`
                 ].join('\n');
@@ -139,7 +145,7 @@ async function selectToolAndArg(vscode, prompt) {
     return { tool: 'check', arg: prompt };
 }
 
-async function parseRefreshArg(vscode, sourceInput) {
+async function parseRefreshArg(vscode, sourceInput, options = {}) {
     const raw = String(sourceInput || '').trim();
     if (!raw) {
         return { found: false, arg: '', source: 'empty' };
@@ -163,7 +169,7 @@ async function parseRefreshArg(vscode, sourceInput) {
         return { found: true, arg: pageIdMatch[1], source: 'regex-id' };
     }
 
-    const candidateByLlm = await extractConfluenceIdentifierWithLlm(vscode, raw);
+    const candidateByLlm = await extractConfluenceIdentifierWithLlm(vscode, raw, options);
     if (candidateByLlm) {
         return { found: true, arg: candidateByLlm, source: 'llm' };
     }
@@ -171,10 +177,13 @@ async function parseRefreshArg(vscode, sourceInput) {
     return { found: false, arg: '', source: 'none' };
 }
 
-async function extractConfluenceIdentifierWithLlm(vscode, rawInput) {
+async function extractConfluenceIdentifierWithLlm(vscode, rawInput, options = {}) {
     if (!vscode.lm || !vscode.LanguageModelChatMessage) {
         return null;
     }
+
+    const workspacePromptContext = String(options.workspacePromptContext || '').trim();
+    const boundedPromptContext = workspacePromptContext.slice(0, 12000);
 
     try {
         const models = await withTimeout(vscode.lm.selectChatModels({}), LLM_TIMEOUT_MS, []);
@@ -188,6 +197,9 @@ async function extractConfluenceIdentifierWithLlm(vscode, rawInput) {
             'From the SOURCE text, extract only one of the following if present: (1) full Confluence HTTP(S) link, (2) numeric Confluence page id, or (3) exact page title phrase.',
             'If none is present, return an empty string.',
             'Return valid JSON only with shape: {"arg":"..."}.',
+            boundedPromptContext
+                ? `Workspace prompt context:\n${boundedPromptContext}`
+                : 'Workspace prompt context: (none)',
             `SOURCE: ${rawInput}`
         ].join('\n');
 
