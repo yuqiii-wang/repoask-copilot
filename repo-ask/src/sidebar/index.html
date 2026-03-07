@@ -26,7 +26,17 @@
             </section>
             <div id="viewer-splitter" class="viewer-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize content and metadata"></div>
             <section class="metadata-pane">
-                <h2 class="viewer-title">Metadata</h2>
+                <div class="viewer-header">
+                    <h2 class="viewer-title">Metadata</h2>
+                    <div class="metadata-actions">
+                        <button id="generate-metadata-btn" class="action-btn action-btn-secondary" type="button" disabled>AI Gen</button>
+                        <button id="metadata-edit-toggle-btn" class="action-btn action-btn-secondary" type="button" disabled>Edit</button>
+                    </div>
+                </div>
+                <label class="metadata-label" for="summary-input">Summary</label>
+                <textarea id="summary-input" class="metadata-textarea" rows="5" placeholder="Summary is empty. Generate or edit it."></textarea>
+                <label class="metadata-label" for="keywords-input">Keywords (comma separated)</label>
+                <textarea id="keywords-input" class="metadata-textarea metadata-textarea-keywords" rows="3" placeholder="keyword-a, keyword-b"></textarea>
                 <ul id="metadata-list" class="metadata-list">
                     <li class="metadata-item">title: -</li>
                 </ul>
@@ -43,6 +53,11 @@
         const metadataListEl = document.getElementById('metadata-list');
         const syncStatusEl = document.getElementById('sync-status');
         const addToPromptsBtnEl = document.getElementById('add-to-prompts-btn');
+        const generateMetadataBtnEl = document.getElementById('generate-metadata-btn');
+        const metadataEditToggleBtnEl = document.getElementById('metadata-edit-toggle-btn');
+        const summaryInputEl = document.getElementById('summary-input');
+        const keywordsInputEl = document.getElementById('keywords-input');
+        const metadataPaneEl = document.querySelector('.metadata-pane');
         const containerEl = document.querySelector('.container');
         const headerEl = document.querySelector('.header');
         const mainSplitterEl = document.getElementById('main-splitter');
@@ -57,6 +72,9 @@
         let isMainResizing = false;
         let mainTopPaneRatio = 0.4;
         let topPaneRatio = 0.6;
+        let selectedMetadata = null;
+        let isMetadataEditMode = false;
+        let isMetadataGenerating = false;
         const layoutGap = 10;
         const layoutSplitterHeight = 6;
 
@@ -175,8 +193,58 @@
                 .replace(/'/g, '&#39;');
         }
 
-        function renderMetadata(metadataItems) {
-            const items = Array.isArray(metadataItems) ? metadataItems : [];
+        function toMetadataItems(metadata) {
+            if (!metadata || typeof metadata !== 'object') {
+                return [];
+            }
+
+            return Object.entries(metadata)
+                .filter(([key]) => key !== 'summary' && key !== 'keywords' && key !== 'extended_keywords')
+                .map(([key, value]) => {
+                    if (Array.isArray(value)) {
+                        return { key, value: value.join(', ') };
+                    }
+                    if (value && typeof value === 'object') {
+                        return { key, value: JSON.stringify(value) };
+                    }
+                    return { key, value: String(value ?? '') };
+                });
+        }
+
+        function setMetadataEditMode(isEditing) {
+            isMetadataEditMode = Boolean(isEditing);
+            const canEditDoc = Boolean(selectedDocId);
+            const inputsEnabled = canEditDoc && isMetadataEditMode && !isMetadataGenerating;
+            summaryInputEl.disabled = !inputsEnabled;
+            keywordsInputEl.disabled = !inputsEnabled;
+            metadataEditToggleBtnEl.disabled = !canEditDoc || isMetadataGenerating;
+            metadataEditToggleBtnEl.textContent = isMetadataEditMode ? 'Save' : 'Edit';
+        }
+
+        function setMetadataGeneratingState(isGenerating) {
+            isMetadataGenerating = Boolean(isGenerating);
+            metadataPaneEl.classList.toggle('is-busy', isMetadataGenerating);
+            generateMetadataBtnEl.classList.toggle('is-loading', isMetadataGenerating);
+            const hasDoc = Boolean(selectedDocId);
+            generateMetadataBtnEl.disabled = !hasDoc || isMetadataGenerating;
+            metadataEditToggleBtnEl.disabled = !hasDoc || isMetadataGenerating;
+            summaryInputEl.disabled = !hasDoc || !isMetadataEditMode || isMetadataGenerating;
+            keywordsInputEl.disabled = !hasDoc || !isMetadataEditMode || isMetadataGenerating;
+        }
+
+        function renderMetadata(metadata) {
+            selectedMetadata = metadata && typeof metadata === 'object' ? metadata : null;
+            const items = toMetadataItems(selectedMetadata);
+            const canEdit = Boolean(selectedDocId);
+            generateMetadataBtnEl.disabled = !canEdit || isMetadataGenerating;
+            setMetadataEditMode(false);
+
+            summaryInputEl.value = selectedMetadata ? String(selectedMetadata.summary || '') : '';
+            const keywordValues = selectedMetadata && Array.isArray(selectedMetadata.keywords)
+                ? selectedMetadata.keywords
+                : [];
+            keywordsInputEl.value = keywordValues.join(', ');
+
             if (items.length === 0) {
                 metadataListEl.innerHTML = '<li class="metadata-item">title: -</li>';
                 return;
@@ -284,7 +352,21 @@
             if (message?.command === 'docDetails') {
                 const payload = message.payload || {};
                 docContentEl.innerHTML = payload.contentHtml || escapeHtml(payload.content || 'No local markdown content found.');
-                renderMetadata(payload.metadata || []);
+                renderMetadata(payload.metadata || null);
+            }
+
+            if (message?.command === 'selectDoc') {
+                const payload = message.payload || {};
+                const incomingId = String(payload.id || '').trim();
+                if (!incomingId) {
+                    return;
+                }
+
+                selectedDocId = incomingId;
+                addToPromptsBtnEl.disabled = !selectedDocId;
+                docContentEl.innerHTML = payload.contentHtml || escapeHtml(payload.content || 'No local markdown content found.');
+                renderMetadata(payload.metadata || null);
+                render();
             }
 
             if (message?.command === 'syncStatus') {
@@ -297,18 +379,84 @@
                     displayedDocs = displayedDocs.filter(doc => String(doc.id) !== deletedId);
                     if (String(selectedDocId) === deletedId) {
                         selectedDocId = null;
+                        selectedMetadata = null;
+                        setMetadataGeneratingState(false);
                         addToPromptsBtnEl.disabled = true;
+                        generateMetadataBtnEl.disabled = true;
+                        metadataEditToggleBtnEl.disabled = true;
+                        summaryInputEl.value = '';
+                        keywordsInputEl.value = '';
+                        setMetadataEditMode(false);
                         docContentEl.textContent = 'Select a document to view local content.';
-                        renderMetadata([]);
+                        renderMetadata(null);
                     }
                     render();
                 }
             }
+
+            if (message?.command === 'metadataUpdated') {
+                const payload = message.payload || {};
+                const updatedDocId = String(payload.id || '').trim();
+                const metadata = payload.metadata || null;
+                if (updatedDocId && String(selectedDocId) === updatedDocId) {
+                    renderMetadata(metadata);
+                }
+            }
+
+            if (message?.command === 'metadataGenerationState') {
+                const payload = message.payload || {};
+                const messageDocId = String(payload.docId || '').trim();
+                if (messageDocId && String(selectedDocId) === messageDocId) {
+                    setMetadataGeneratingState(Boolean(payload.isGenerating));
+                }
+            }
+        });
+
+        generateMetadataBtnEl.addEventListener('click', () => {
+            if (!selectedDocId || isMetadataGenerating) {
+                return;
+            }
+
+            setMetadataGeneratingState(true);
+
+            vscode.postMessage({
+                command: 'generateMetadata',
+                docId: selectedDocId
+            });
+        });
+
+        metadataEditToggleBtnEl.addEventListener('click', () => {
+            if (!selectedDocId || isMetadataGenerating) {
+                return;
+            }
+
+            if (!isMetadataEditMode) {
+                setMetadataEditMode(true);
+                summaryInputEl.focus();
+                return;
+            }
+
+            const keywords = String(keywordsInputEl.value || '')
+                .split(',')
+                .map(keyword => keyword.trim())
+                .filter(keyword => keyword.length > 0)
+                .join(', ');
+            vscode.postMessage({
+                command: 'saveMetadata',
+                docId: selectedDocId,
+                summary: summaryInputEl.value || '',
+                keywords
+            });
+            setMetadataEditMode(false);
         });
 
         renderSyncStatus(initialSyncStatus || '');
         sortDisplayedDocs();
         addToPromptsBtnEl.disabled = !selectedDocId;
+        generateMetadataBtnEl.disabled = !selectedDocId;
+        metadataEditToggleBtnEl.disabled = !selectedDocId;
+        setMetadataEditMode(false);
+        setMetadataGeneratingState(false);
         applyMainTopHeight((containerEl.clientHeight || 0) * mainTopPaneRatio);
         applyViewerTopHeight((viewerEl.clientHeight || 0) * topPaneRatio);
         window.addEventListener('resize', () => {

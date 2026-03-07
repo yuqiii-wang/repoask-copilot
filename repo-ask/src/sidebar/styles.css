@@ -192,9 +192,12 @@ body {
 
 .content-pane,
 .metadata-pane {
+    width: 100%;
+    max-width: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .viewer-header {
@@ -203,6 +206,12 @@ body {
     justify-content: space-between;
     gap: 8px;
     margin-bottom: 6px;
+}
+
+.metadata-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .viewer-title {
@@ -231,7 +240,38 @@ body {
     cursor: default;
 }
 
+.action-btn-secondary {
+    border-color: var(--vscode-button-secondaryBackground);
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+}
+
+.action-btn-secondary:hover:enabled {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.action-btn.is-loading {
+    position: relative;
+    padding-right: 24px;
+}
+
+.action-btn.is-loading::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    margin-top: -5px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: repoask-spin 0.8s linear infinite;
+}
+
 .doc-content {
+    width: 100%;
+    max-width: 100%;
     margin: 0;
     padding: 8px;
     border: 1px solid var(--vscode-editorWidget-border);
@@ -241,6 +281,7 @@ body {
     white-space: normal;
     height: 100%;
     overflow: auto;
+    overflow-wrap: anywhere;
     font-family: var(--vscode-editor-font-family);
     font-size: 12px;
     line-height: 1.45;
@@ -255,15 +296,50 @@ body {
 }
 
 .metadata-list {
+    width: 100%;
+    max-width: 100%;
     list-style: disc;
     padding-left: 18px;
-    margin: 0;
+    margin: 8px 0 0;
     overflow: auto;
-    height: 100%;
+    flex: 1;
+    min-height: 80px;
 }
 
 .metadata-item {
     margin: 0 0 4px;
+}
+
+.metadata-label {
+    font-size: 11px;
+    margin: 2px 0 4px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.metadata-input,
+.metadata-textarea {
+    width: 100%;
+    max-width: 100%;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    padding: 6px;
+    margin: 0 0 8px;
+    font-size: 12px;
+}
+
+.metadata-textarea {
+    resize: vertical;
+    min-height: 64px;
+}
+
+#summary-input {
+    min-height: calc(5 * 1.45em + 12px);
+}
+
+#keywords-input {
+    min-height: calc(3 * 1.45em + 12px);
 }
 
 .viewer-splitter {
@@ -281,4 +357,8 @@ body {
 body.is-resizing {
     user-select: none;
     cursor: row-resize;
+}
+
+.metadata-pane.is-busy {
+    opacity: 0.9;
 }

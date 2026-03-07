@@ -2,9 +2,10 @@ function scoreMetadata(questionTokens, metadata, tokenize) {
     const titleTokens = tokenize(metadata.title || '');
     const summaryTokens = tokenize(metadata.summary || '');
     const keywordTokens = (metadata.keywords || []).flatMap(keyword => tokenize(keyword));
+    const extendedKeywordTokens = (metadata.extended_keywords || []).flatMap(keyword => tokenize(keyword));
     const topicTokens = tokenize(metadata.parent_confluence_topic || '');
 
-    const tokenSet = new Set([...titleTokens, ...summaryTokens, ...keywordTokens, ...topicTokens]);
+    const tokenSet = new Set([...titleTokens, ...summaryTokens, ...keywordTokens, ...extendedKeywordTokens, ...topicTokens]);
     let score = 0;
 
     for (const token of questionTokens) {
@@ -13,6 +14,9 @@ function scoreMetadata(questionTokens, metadata, tokenize) {
         }
         if (keywordTokens.includes(token)) {
             score += 3;
+        }
+        if (extendedKeywordTokens.includes(token)) {
+            score += 2;
         }
         if (summaryTokens.includes(token)) {
             score += 2;
@@ -67,6 +71,7 @@ function rankDocumentsByIdf(query, documents, tokenize, options = {}) {
             doc.summary || '',
             doc.parent_confluence_topic || '',
             ...(Array.isArray(doc.keywords) ? doc.keywords : []),
+            ...(Array.isArray(doc.extended_keywords) ? doc.extended_keywords : []),
             doc.content || ''
         ].join(' ');
 

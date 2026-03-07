@@ -3,11 +3,13 @@ const path = require('path');
 const cheerio = require('cheerio');
 const axios = require('axios');
 const { extractJsonObject } = require('./llm');
+const { createBm25Index } = require('../bm25');
 
 function createDocumentService(deps) {
     const {
         vscode,
         storagePath,
+        bm25StoragePath,
         fetchConfluencePage,
         fetchAllConfluencePages,
         fetchJiraIssue,
@@ -15,42 +17,184 @@ function createDocumentService(deps) {
         tokenize,
         htmlToMarkdown,
         generateKeywords,
+        generateExtendedKeywords,
         generateSummary,
         readAllMetadata,
         writeDocumentFiles,
         readDocumentContent,
         rankDocumentsByIdf
     } = deps;
+    const bm25Index = createBm25Index({
+        storePath: bm25StoragePath,
+        tokenize
+    });
+    bm25Index.ensureStorePath();
+
+    function getKeywordConfig() {
+        const initKeywordNum = vscode.workspace.getConfiguration('repoAsk').get('initKeywordNum') || 40;
+        return {
+            DEFAULT_KEYWORD_LIMIT: initKeywordNum,
+            TOKENIZATION_KEYWORD_LIMIT: Math.floor(initKeywordNum / 2),
+            BM25_KEYWORD_LIMIT: initKeywordNum - Math.floor(initKeywordNum / 2)
+        };
+    }
+
+    function buildKeywordOnlyIndexText(metadata) {
+        if (!metadata || typeof metadata !== 'object') {
+            return '';
+        }
+        const { DEFAULT_KEYWORD_LIMIT } = getKeywordConfig();
+
+        const keywords = cleanKeywords(metadata.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT * 4);
+        return keywords.join(' ');
+    }
+
+    function rebuildBm25IndexFromMetadataKeywords(metadataList = []) {
+        const documents = (Array.isArray(metadataList) ? metadataList : [])
+            .map((item) => ({
+                id: item?.id,
+                text: buildKeywordOnlyIndexText(item)
+            }))
+            .filter((item) => String(item.id || '').trim().length > 0);
+
+        bm25Index.rebuildDocuments(documents);
+    }
 
     function rankLocalDocuments(query, limit = 20) {
-        const metadataList = readAllMetadata(storagePath);
+        const metadataList = readAllMetadata(storagePath).map(normalizeMetadataKeywordFields);
         if (metadataList.length === 0) {
             return [];
         }
 
-        const corpus = metadataList.map(metadata => ({
+        // Rank/search should use the latest metadata keywords as the BM25 index corpus.
+        rebuildBm25IndexFromMetadataKeywords(metadataList);
+
+        const metadataById = Object.fromEntries(metadataList.map(item => [String(item.id), item]));
+
+        let rankedByBm25 = bm25Index.rankDocuments(query, metadataById, { limit });
+        if (rankedByBm25.length > 0) {
+            return rankedByBm25;
+        }
+
+        const fallbackCorpus = metadataList.map(metadata => ({
             ...metadata,
             content: readDocumentContent(storagePath, metadata.id) || ''
         }));
+        return rankDocumentsByIdf(query, fallbackCorpus, tokenize, { limit, minScore: 0.01 });
+    }
 
-        return rankDocumentsByIdf(query, corpus, tokenize, { limit, minScore: 0.01 });
+    function checkLocalDocumentsAgentic(query, options = {}) {
+        const normalizedQuery = String(query || '').trim();
+        const rawLimit = Number(options?.limit);
+        const limit = Number.isFinite(rawLimit) && rawLimit > 0
+            ? Math.min(Math.floor(rawLimit), 50)
+            : 5;
+        const rawMetadataCandidateLimit = Number(options?.metadataCandidateLimit);
+        const metadataCandidateLimit = Number.isFinite(rawMetadataCandidateLimit) && rawMetadataCandidateLimit > 0
+            ? Math.min(Math.floor(rawMetadataCandidateLimit), 1000)
+            : Math.max(40, limit * 4);
+
+        if (!normalizedQuery) {
+            return {
+                query: normalizedQuery,
+                metadataScanned: 0,
+                metadataCandidates: 0,
+                contentLoaded: 0,
+                usedMetadataFallback: false,
+                references: []
+            };
+        }
+
+        const metadataList = readAllMetadata(storagePath).map(normalizeMetadataKeywordFields);
+        if (metadataList.length === 0) {
+            return {
+                query: normalizedQuery,
+                metadataScanned: 0,
+                metadataCandidates: 0,
+                contentLoaded: 0,
+                usedMetadataFallback: false,
+                references: []
+            };
+        }
+
+        const metadataCorpus = metadataList.map((doc) => ({ ...doc, content: '' }));
+        const rankedMetadata = rankDocumentsByIdf(
+            normalizedQuery,
+            metadataCorpus,
+            tokenize,
+            { limit: metadataList.length, minScore: 0 }
+        );
+
+        const positiveMetadata = rankedMetadata.filter((doc) => Number(doc.score) > 0);
+        const metadataCandidates = (positiveMetadata.length > 0 ? positiveMetadata : metadataList)
+            .slice(0, Math.min(metadataCandidateLimit, metadataList.length));
+
+        const contentById = new Map();
+        const contentCorpus = metadataCandidates.map((doc) => {
+            const content = readDocumentContent(storagePath, doc.id) || '';
+            contentById.set(String(doc.id || ''), content);
+            return {
+                ...doc,
+                content
+            };
+        });
+
+        const rankedByContent = rankDocumentsByIdf(
+            normalizedQuery,
+            contentCorpus,
+            tokenize,
+            { limit, minScore: 0 }
+        );
+
+        const finalResults = rankedByContent.length > 0
+            ? rankedByContent
+            : metadataCandidates.slice(0, limit).map((doc) => ({ ...doc, score: Number(doc.score || 0) }));
+
+        const references = finalResults.map((doc) => {
+            const docId = String(doc.id || '');
+            return {
+                id: doc.id,
+                title: doc.title || 'Untitled',
+                author: doc.author || 'Unknown',
+                last_updated: doc.last_updated || '',
+                parent_confluence_topic: doc.parent_confluence_topic || '',
+                summary: truncate(doc.summary || 'No summary available', 220),
+                score: Number.isFinite(Number(doc.score)) ? Number(doc.score) : 0,
+                reference: truncate(contentById.get(docId) || '', 500)
+            };
+        });
+
+        const contentLoaded = contentCorpus.filter((doc) => String(doc.content || '').trim().length > 0).length;
+        return {
+            query: normalizedQuery,
+            metadataScanned: metadataList.length,
+            metadataCandidates: metadataCandidates.length,
+            contentLoaded,
+            usedMetadataFallback: positiveMetadata.length === 0,
+            references
+        };
     }
 
     async function refreshDocument(pageArg, options = {}) {
         const page = await fetchConfluencePage(pageArg);
         const metadata = await processDocument(page);
+        await finalizeBm25KeywordsForDocuments([metadata.id]);
         notifyDocumentProcessed(options, metadata, 1, 1);
     }
 
     async function refreshAllDocuments(options = {}) {
         const pages = await fetchAllConfluencePages();
         const total = pages.length;
+        const refreshedIds = [];
 
         for (let index = 0; index < total; index += 1) {
             const page = pages[index];
             const metadata = await processDocument(page);
+            refreshedIds.push(metadata.id);
             notifyDocumentProcessed(options, metadata, index + 1, total);
         }
+
+        await finalizeBm25KeywordsForDocuments(refreshedIds);
     }
 
     async function refreshJiraIssue(issueArg, options = {}) {
@@ -60,6 +204,7 @@ function createDocumentService(deps) {
 
         const issue = await fetchJiraIssue(issueArg);
         const metadata = await processJiraIssue(issue);
+        await finalizeBm25KeywordsForDocuments([metadata.id]);
         notifyDocumentProcessed(options, metadata, 1, 1);
     }
 
@@ -172,10 +317,6 @@ function createDocumentService(deps) {
         const sourceUrl = resolveSourceUrl(page);
         const markdownBaseContent = isHtmlContent ? htmlToMarkdown(rawContent) : String(rawContent || '').trim();
         const markdownContent = await localizeMarkdownImageLinks(markdownBaseContent, page.id, sourceUrl);
-        const incomingKeywords = cleanKeywords([
-            ...(Array.isArray(page.keywords) ? page.keywords : []),
-            ...htmlTagData.keywords
-        ]);
         const baseMetadata = {
             id: page.id,
             title: htmlTagData.title || page.title,
@@ -184,16 +325,26 @@ function createDocumentService(deps) {
             parent_confluence_topic: page.parent_confluence_topic || page.space || 'General',
             url: sourceUrl,
             keywords: [],
+            extended_keywords: [],
             summary: ''
         };
 
-        const llmAnnotation = await generateAnnotationWithLlm(baseMetadata, markdownContent);
-        const llmKeywords = cleanKeywords(llmAnnotation.keywords);
-        const tokenizationKeywords = cleanKeywords(generateKeywords(markdownContent));
+        const tokenizationKeywords = cleanKeywords(generateKeywords(markdownContent), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+        bm25Index.upsertDocument(page.id, markdownContent);
+        const bm25Keywords = cleanKeywords(
+            bm25Index.extractKeywordsForDocument(page.id, { limit: getKeywordConfig().BM25_KEYWORD_LIMIT }),
+            getKeywordConfig().BM25_KEYWORD_LIMIT
+        );
+        const mergedKeywords = mergeKeywordsPreservingSignals({
+            structuralKeywords: tokenizationKeywords,
+            modelKeywords: bm25Keywords,
+            limit: getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+        });
         const metadata = {
             ...baseMetadata,
-            keywords: cleanKeywords([...incomingKeywords, ...tokenizationKeywords, ...llmKeywords]),
-            summary: String(llmAnnotation.summary || '').trim() || generateSummary(markdownContent)
+            keywords: mergedKeywords,
+            extended_keywords: cleanKeywords(generateExtendedKeywords(mergedKeywords), 80),
+            summary: ''
         };
 
         writeDocumentFiles(storagePath, page.id, markdownContent, metadata);
@@ -242,11 +393,6 @@ function createDocumentService(deps) {
             issue?.id,
             resolveSourceUrl(issue)
         );
-        const incomingKeywords = cleanKeywords([
-            ...(Array.isArray(fields?.labels) ? fields.labels : []),
-            ...summaryTagData.keywords,
-            ...descriptionTagData.keywords
-        ]);
         const baseMetadata = {
             id: issue?.id,
             title,
@@ -255,16 +401,26 @@ function createDocumentService(deps) {
             parent_confluence_topic: `Jira ${projectKey}`,
             url: resolveSourceUrl(issue),
             keywords: [],
+            extended_keywords: [],
             summary: ''
         };
 
-        const llmAnnotation = await generateAnnotationWithLlm(baseMetadata, markdownContent);
-        const llmKeywords = cleanKeywords(llmAnnotation.keywords);
-        const tokenizationKeywords = cleanKeywords(generateKeywords(markdownContent));
+        const tokenizationKeywords = cleanKeywords(generateKeywords(markdownContent), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+        bm25Index.upsertDocument(issue?.id, markdownContent);
+        const bm25Keywords = cleanKeywords(
+            bm25Index.extractKeywordsForDocument(issue?.id, { limit: getKeywordConfig().BM25_KEYWORD_LIMIT }),
+            getKeywordConfig().BM25_KEYWORD_LIMIT
+        );
+        const mergedKeywords = mergeKeywordsPreservingSignals({
+            structuralKeywords: tokenizationKeywords,
+            modelKeywords: bm25Keywords,
+            limit: getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+        });
         const metadata = {
             ...baseMetadata,
-            keywords: cleanKeywords([...incomingKeywords, ...tokenizationKeywords, ...llmKeywords]),
-            summary: String(llmAnnotation.summary || '').trim() || generateSummary(markdownContent)
+            keywords: mergedKeywords,
+            extended_keywords: cleanKeywords(generateExtendedKeywords(mergedKeywords), 80),
+            summary: ''
         };
 
         writeDocumentFiles(storagePath, issue?.id, markdownContent, metadata);
@@ -507,24 +663,124 @@ function createDocumentService(deps) {
         return '';
     }
 
-    function cleanKeywords(values) {
-        if (!Array.isArray(values)) {
+    function normalizeKeywordsInput(values) {
+        if (Array.isArray(values)) {
+            return values;
+        }
+
+        if (typeof values === 'string') {
+            return values.split(',');
+        }
+
+        return [];
+    }
+
+    function cleanKeywords(values, limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT) {
+        const keywordValues = normalizeKeywordsInput(values);
+        if (keywordValues.length === 0) {
             return [];
         }
 
-        return [...new Set(values
+        const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
+        return [...new Set(keywordValues
             .map(value => String(value || '').trim())
             .filter(value => value.length > 2))]
-            .slice(0, 40);
+            .slice(0, safeLimit);
+    }
+
+    function normalizeMetadataKeywordFields(metadata = {}) {
+        const base = metadata && typeof metadata === 'object' ? metadata : {};
+        const keywords = cleanKeywords(base.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
+        return {
+            ...base,
+            keywords,
+            extended_keywords: cleanKeywords(generateExtendedKeywords(keywords), 80)
+        };
+    }
+
+    function mergeKeywordsPreservingSignals({
+        structuralKeywords = [],
+        modelKeywords = [],
+        lexicalKeywords = [],
+        limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+    } = {}) {
+        const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
+        const structural = cleanKeywords(structuralKeywords, safeLimit * 2);
+        const model = cleanKeywords(modelKeywords, safeLimit * 2);
+        const lexical = cleanKeywords(lexicalKeywords, safeLimit * 2);
+
+        const merged = [];
+        let index = 0;
+
+        // Interleave structural and BM25 keywords so both sources remain visible.
+        while (merged.length < safeLimit && (index < structural.length || index < model.length)) {
+            if (index < structural.length && !merged.includes(structural[index])) {
+                merged.push(structural[index]);
+            }
+
+            if (merged.length >= safeLimit) {
+                break;
+            }
+
+            if (index < model.length && !merged.includes(model[index])) {
+                merged.push(model[index]);
+            }
+
+            index += 1;
+        }
+
+        for (const keyword of lexical) {
+            if (merged.length >= safeLimit) {
+                break;
+            }
+
+            if (!merged.includes(keyword)) {
+                merged.push(keyword);
+            }
+        }
+
+        return merged;
+    }
+
+    function appendKeywordsToExisting(existingKeywords = [], addedKeywords = [], limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT) {
+        const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
+        const existing = cleanKeywords(existingKeywords, safeLimit * 2);
+        const additions = cleanKeywords(addedKeywords, safeLimit * 2);
+        const merged = [...existing];
+
+        for (const keyword of additions) {
+            if (merged.length >= safeLimit) {
+                break;
+            }
+            if (!merged.includes(keyword)) {
+                merged.push(keyword);
+            }
+        }
+
+        return merged.slice(0, safeLimit);
     }
 
     async function generateAnnotationWithLlm(metadata, content) {
+        const originalKeywords = cleanKeywords(metadata?.keywords);
         const fallbackKeywords = generateKeywords(content);
         const fallbackSummary = generateSummary(content);
 
+        function appendSynonymKeywords(baseKeywords, maxSynonyms = 6) {
+            const orderedBase = cleanKeywords(baseKeywords);
+            if (orderedBase.length === 0) {
+                return [];
+            }
+
+            const synonymCandidates = cleanKeywords(generateExtendedKeywords(orderedBase), 80)
+                .filter(keyword => !orderedBase.includes(keyword))
+                .slice(0, maxSynonyms);
+
+            return cleanKeywords([...orderedBase, ...synonymCandidates]);
+        }
+
         if (!vscode.lm || !vscode.LanguageModelChatMessage) {
             return {
-                keywords: fallbackKeywords,
+                keywords: appendSynonymKeywords([...originalKeywords, ...fallbackKeywords]),
                 summary: fallbackSummary
             };
         }
@@ -535,16 +791,17 @@ function createDocumentService(deps) {
 
             if (!model) {
                 return {
-                    keywords: fallbackKeywords,
+                    keywords: appendSynonymKeywords([...originalKeywords, ...fallbackKeywords]),
                     summary: fallbackSummary
                 };
             }
 
             const prompt = [
                 'You are annotating a local Confluence document metadata record.',
-                'Return valid JSON only with shape: {"summary":"...","keywords":["..."]}.',
+                'Return valid JSON only with shape: {"summary":"...","keywords":"keyword-a, keyword-b"}.',
                 'Summary must be one concise paragraph under 220 characters.',
-                'Keywords must be specific technical terms.',
+                'Keywords must be specific technical terms in one comma-separated string.',
+                'Include a few close synonyms or related alternate terms that help retrieval.',
                 `Title: ${metadata.title || ''}`,
                 `Topic: ${metadata.parent_confluence_topic || ''}`,
                 `Author: ${metadata.author || ''}`,
@@ -564,14 +821,26 @@ function createDocumentService(deps) {
             const parsed = extractJsonObject(responseText) || {};
             const llmKeywords = cleanKeywords(parsed.keywords);
             const llmSummary = String(parsed.summary || '').trim();
+            const appendedWithLlm = appendKeywordsToExisting(
+                originalKeywords,
+                [...llmKeywords, ...fallbackKeywords],
+                getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+            );
+            const fallbackMergedKeywords = appendKeywordsToExisting(
+                originalKeywords,
+                fallbackKeywords,
+                getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+            );
 
             return {
-                keywords: cleanKeywords([...fallbackKeywords, ...llmKeywords]),
+                keywords: appendedWithLlm.length > 0
+                    ? appendSynonymKeywords(appendedWithLlm)
+                    : appendSynonymKeywords(fallbackMergedKeywords),
                 summary: llmSummary || fallbackSummary
             };
         } catch {
             return {
-                keywords: fallbackKeywords,
+                keywords: appendSynonymKeywords([...originalKeywords, ...fallbackKeywords]),
                 summary: fallbackSummary
             };
         }
@@ -584,14 +853,142 @@ function createDocumentService(deps) {
         }
 
         const annotation = await generateAnnotationWithLlm(metadata, content);
-        const updatedMetadata = {
+        const updatedMetadata = normalizeMetadataKeywordFields({
             ...metadata,
-            keywords: annotation.keywords,
+            keywords: cleanKeywords(annotation.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT),
             summary: annotation.summary
-        };
+        });
 
         writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);
+        bm25Index.upsertDocument(updatedMetadata.id, buildKeywordOnlyIndexText(updatedMetadata));
         return true;
+    }
+
+    function getStoredMetadataById(docId) {
+        const safeId = String(docId || '').trim();
+        if (!safeId) {
+            return null;
+        }
+
+        const allMetadata = readAllMetadata(storagePath);
+        const found = allMetadata.find(item => String(item.id) === safeId) || null;
+        return found ? normalizeMetadataKeywordFields(found) : null;
+    }
+
+    async function generateStoredMetadataById(docId) {
+        const metadata = getStoredMetadataById(docId);
+        if (!metadata) {
+            throw new Error(`Document ${docId} not found in local store.`);
+        }
+
+        const content = readDocumentContent(storagePath, metadata.id);
+        if (!content) {
+            throw new Error(`No local content found for document ${docId}.`);
+        }
+
+        const annotation = await generateAnnotationWithLlm(metadata, content);
+        const updatedMetadata = normalizeMetadataKeywordFields({
+            ...metadata,
+            keywords: cleanKeywords(annotation.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT),
+            summary: String(annotation.summary || '').trim()
+        });
+
+        writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);
+        bm25Index.upsertDocument(updatedMetadata.id, buildKeywordOnlyIndexText(updatedMetadata));
+        return updatedMetadata;
+    }
+
+    function updateStoredMetadataById(docId, patch = {}) {
+        const metadata = getStoredMetadataById(docId);
+        if (!metadata) {
+            throw new Error(`Document ${docId} not found in local store.`);
+        }
+
+        const content = readDocumentContent(storagePath, metadata.id);
+        if (!content) {
+            throw new Error(`No local content found for document ${docId}.`);
+        }
+
+        const tokenizationKeywords = cleanKeywords(generateKeywords(content), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+        const manualKeywords = cleanKeywords(patch.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
+        const nextKeywords = mergeKeywordsPreservingSignals({
+            structuralKeywords: tokenizationKeywords,
+            lexicalKeywords: manualKeywords,
+            limit: getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+        });
+        const nextSummary = String(patch.summary || '').trim();
+        const updatedMetadata = normalizeMetadataKeywordFields({
+            ...metadata,
+            keywords: nextKeywords,
+            summary: nextSummary
+        });
+
+        writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);
+        bm25Index.upsertDocument(updatedMetadata.id, buildKeywordOnlyIndexText(updatedMetadata));
+        return updatedMetadata;
+    }
+
+    async function finalizeBm25KeywordsForDocuments(docIds = []) {
+        const metadataList = readAllMetadata(storagePath);
+        if (!Array.isArray(metadataList) || metadataList.length === 0) {
+            return;
+        }
+
+        const corpus = metadataList.map(item => ({
+            id: item.id,
+            text: readDocumentContent(storagePath, item.id) || ''
+        }));
+        bm25Index.rebuildDocuments(corpus);
+
+        const targetIdSet = new Set((Array.isArray(docIds) ? docIds : [])
+            .map(value => String(value || '').trim())
+            .filter(value => value.length > 0));
+
+        if (targetIdSet.size === 0) {
+            return;
+        }
+
+        for (const metadataEntry of metadataList) {
+            const metadata = normalizeMetadataKeywordFields(metadataEntry);
+            const id = String(metadata?.id || '').trim();
+            if (!id || !targetIdSet.has(id)) {
+                continue;
+            }
+
+            const content = readDocumentContent(storagePath, id);
+            if (!content) {
+                continue;
+            }
+
+            const bm25Keywords = cleanKeywords(
+                bm25Index.extractKeywordsForDocument(id, { limit: getKeywordConfig().BM25_KEYWORD_LIMIT }),
+                getKeywordConfig().BM25_KEYWORD_LIMIT
+            );
+            const tokenizationKeywords = cleanKeywords(generateKeywords(content), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+            const mergedKeywords = mergeKeywordsPreservingSignals({
+                structuralKeywords: tokenizationKeywords,
+                modelKeywords: bm25Keywords,
+                limit: getKeywordConfig().DEFAULT_KEYWORD_LIMIT
+            });
+
+            if (mergedKeywords.length === 0) {
+                continue;
+            }
+
+            const updatedMetadata = normalizeMetadataKeywordFields({
+                ...metadata,
+                keywords: mergedKeywords
+            });
+
+            writeDocumentFiles(storagePath, id, content, updatedMetadata);
+        }
+
+        const refreshedMetadata = readAllMetadata(storagePath).map(normalizeMetadataKeywordFields);
+        rebuildBm25IndexFromMetadataKeywords(refreshedMetadata);
+    }
+
+    function removeBm25DocumentById(docId) {
+        bm25Index.removeDocument(docId);
     }
 
     function sanitizeFileSegment(value) {
@@ -614,11 +1011,16 @@ function createDocumentService(deps) {
 
     return {
         rankLocalDocuments,
+        checkLocalDocumentsAgentic,
         refreshDocument,
         refreshAllDocuments,
         refreshJiraIssue,
         annotateDocumentByArg,
         annotateAllDocuments,
+        getStoredMetadataById,
+        generateStoredMetadataById,
+        updateStoredMetadataById,
+        removeBm25DocumentById,
         writeDocumentPromptFile,
         formatMetadataEntries
     };

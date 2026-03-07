@@ -10,8 +10,6 @@ function createLanguageModelTools(deps) {
         upsertSidebarDocument,
         readAllMetadata,
         readDocumentContent,
-        findRelevantDocuments,
-        tokenize,
         truncate,
         emptyStoreHint,
         toolNames
@@ -23,6 +21,16 @@ function createLanguageModelTools(deps) {
             parts.push(vscode.LanguageModelDataPart.json(data));
         }
         return new vscode.LanguageModelToolResult(parts);
+    }
+
+    function buildCheckAllDocsCommandLink(query) {
+        const question = String(query || '').trim();
+        if (!question) {
+            return 'Run `repo-ask.checkAllDocs` to scan all docs.';
+        }
+
+        const encodedArgs = encodeURIComponent(JSON.stringify([question]));
+        return `[Check ALL docs](command:repo-ask.checkAllDocs?${encodedArgs})`;
     }
 
     function formatRefreshStatus(sourceLabel, progress = {}) {
@@ -150,7 +158,7 @@ function createLanguageModelTools(deps) {
                     id: item.id,
                     title: item.title || 'Untitled',
                     score: Number(item.score?.toFixed ? item.score.toFixed(4) : item.score),
-                    summary: truncate(item.summary || '', 220)
+                    summary: item.summary || ''
                 }));
                 const lines = results.map((item, index) => `${index + 1}. ${item.title} (score ${item.score})`);
                 return toToolResult(`Top ranked RepoAsk documents:\n${lines.join('\n')}`, { results });
@@ -160,8 +168,10 @@ function createLanguageModelTools(deps) {
         const checkTool = vscode.lm.registerTool(toolNames.check, {
             async invoke(options) {
                 const query = String(options?.input?.query || '').trim();
+                const repAskConfig = vscode.workspace.getConfiguration('repoAsk');
+                const initKeywordNum = repAskConfig.get('initKeywordNum') || 50;
                 const rawLimit = Number(options?.input?.limit);
-                const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 20) : 5;
+                const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), initKeywordNum) : 5;
 
                 if (!query) {
                     return toToolResult('Missing required `query` input for check tool.', { references: [] });
@@ -172,29 +182,123 @@ function createLanguageModelTools(deps) {
                     return toToolResult(emptyStoreHint, { references: [] });
                 }
 
-                const relevantDocs = findRelevantDocuments(query, metadataList, tokenize).slice(0, limit);
-                if (relevantDocs.length === 0) {
-                    return toToolResult('No relevant documents found in local store.', { references: [] });
-                }
-
-                const references = relevantDocs.map(doc => {
-                    const content = readDocumentContent(doc.id) || '';
-                    return {
-                        id: doc.id,
-                        title: doc.title || 'Untitled',
-                        author: doc.author || 'Unknown',
-                        last_updated: doc.last_updated || '',
-                        summary: truncate(doc.summary || 'No summary available', 220),
-                        reference: truncate(content, 500)
-                    };
+                const agenticResult = documentService.checkLocalDocumentsAgentic(query, {
+                    limit,
+                    metadataCandidateLimit: Math.max(40, limit * 4)
                 });
 
+                if (!agenticResult.references || agenticResult.references.length === 0) {
+                    return toToolResult(`No relevant documents found in local store. ${buildCheckAllDocsCommandLink(query)}`, { references: [] });
+                }
+
+                const confidentRefs = agenticResult.references.filter(r => r.score > 0);
+                if (confidentRefs.length === 0) {
+                    return toToolResult(`No confident local documents found for your query. Please ${buildCheckAllDocsCommandLink(query)}`, { references: [] });
+                }
+
+                const references = confidentRefs.map((ref) => ({
+                    ...ref,
+                    summary: ref.summary || 'No summary available',
+                    reference: ref.reference || ''
+                }));
                 const lines = references.map((ref, index) => `${index + 1}. ${ref.title} (updated ${ref.last_updated || '-'})`);
-                return toToolResult(`Top relevant RepoAsk references:\n${lines.join('\n')}`, { references });
+                const summaryLines = [
+                    `Top relevant RepoAsk references (agentic check):`,
+                    `- Metadata scanned: ${agenticResult.metadataScanned}`,
+                    `- Metadata candidates loaded for content: ${agenticResult.metadataCandidates}`,
+                    `- Docs with content loaded: ${agenticResult.contentLoaded}`,
+                    `- Metadata fallback used: ${agenticResult.usedMetadataFallback ? 'yes' : 'no'}`,
+                    '',
+                    ...lines,
+                    '',
+                    `Need broader confirmation? ${buildCheckAllDocsCommandLink(query)}`
+                ];
+
+                return toToolResult(summaryLines.join('\n'), {
+                    references,
+                    diagnostics: {
+                        metadataScanned: agenticResult.metadataScanned,
+                        metadataCandidates: agenticResult.metadataCandidates,
+                        contentLoaded: agenticResult.contentLoaded,
+                        usedMetadataFallback: agenticResult.usedMetadataFallback
+                    }
+                });
             }
         });
 
-        return [refreshTool, annotateTool, rankTool, checkTool];
+        const readMetadataTool = vscode.lm.registerTool('repoask_read_metadata', {
+            prepareInvocation(options) {
+                const ids = options?.input?.ids || [];
+                return {
+                    invocationMessage: ids.length > 0 ? `Reading metadata for ${ids.length} docs...` : 'Reading all metadata...'
+                };
+            },
+            async invoke(options) {
+                const ids = options?.input?.ids || [];
+                const allMetadata = readAllMetadata();
+                let filtered = allMetadata;
+                if (ids.length > 0) {
+                    filtered = allMetadata.filter(m => ids.includes(String(m.id)) || ids.includes(m.id));
+                }
+                
+                const repAskConfig = vscode.workspace.getConfiguration('repoAsk');
+                const confProfile = repAskConfig.get('confluence');
+                const confUrl = String((confProfile && typeof confProfile === 'object' ? confProfile.url : '') || repAskConfig.get('confluenceBaseUrl') || 'http://127.0.0.1:8001').replace(/\/$/, '');
+                
+                const jiraProfile = repAskConfig.get('jira');
+                const jiraUrl = String((jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : '') || repAskConfig.get('jiraBaseUrl') || 'http://127.0.0.1:8002').replace(/\/$/, '');
+
+                const summaryLines = filtered.map(m => {
+                    let fullUrl = m.url || '';
+                    if (fullUrl && !fullUrl.startsWith('http')) {
+                        const isJira = m.parent_confluence_topic && String(m.parent_confluence_topic).startsWith('Jira');
+                        const baseUrl = isJira ? jiraUrl : confUrl;
+                        fullUrl = `${baseUrl}${fullUrl.startsWith('/') ? '' : '/'}${fullUrl}`;
+                    }
+
+                    const lines = [
+                        `- [${m.id}] ${m.title || 'Untitled'}`,
+                        `  URL: ${fullUrl || 'None'}`,
+                        `  Jira ID / Confluence Title: ${m.title || 'Untitled'}`,
+                        `  Author: ${m.author || 'Unknown'}`,
+                        `  Last Updated: ${m.last_updated || 'Unknown'}`,
+                        `  Parent Topic: ${m.parent_confluence_topic || 'None'}`,
+                        `  Keywords: ${Array.isArray(m.keywords) ? m.keywords.join(', ') : 'None'}`,
+                        `  Summary: ${m.summary || 'None'}`
+                    ];
+                    return lines.join('\n');
+                });
+                return toToolResult(`Found metadata for ${filtered.length} docs:\n${summaryLines.join('\n\n')}`, { metadata: filtered });
+            }
+        });
+
+        const readContentTool = vscode.lm.registerTool('repoask_read_content', {
+            prepareInvocation(options) {
+                const ids = options?.input?.ids || [];
+                return {
+                    invocationMessage: ids.length > 0 ? `Reading content for ${ids.length} docs...` : 'Reading all content...'
+                };
+            },
+            async invoke(options) {
+                const ids = options?.input?.ids || [];
+                const allMetadata = readAllMetadata();
+                let filtered = allMetadata;
+                if (ids.length > 0) {
+                    filtered = allMetadata.filter(m => ids.includes(String(m.id)) || ids.includes(m.id));
+                }
+                const results = [];
+                for (const m of filtered) {
+                    const content = readDocumentContent(m.id);
+                    if (content) {
+                        results.push({ id: m.id, title: m.title, content: content });
+                    }
+                }
+                const summaryLines = results.map(r => `Doc [${r.id}] ${r.title}:\n${r.content}`);
+                return toToolResult(`Found content for ${results.length} docs:\n\n${summaryLines.join('\n\n')}`, { contents: results });
+            }
+        });
+
+        return [refreshTool, annotateTool, rankTool, checkTool, readMetadataTool, readContentTool];
     }
 
     async function handleRefreshFromSource(sourceInput, response, options = {}) {

@@ -1,23 +1,28 @@
 const fs = require('fs');
 const path = require('path');
-const vscode = require('vscode');
 
 const CONTENT_FILE_NAME = 'content.md';
 const METADATA_FILE_NAME = 'metadata.json';
 const IMAGES_DIR_NAME = 'images';
 
 function getLocalStorePath(context) {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (workspaceRoot) {
-        return path.join(workspaceRoot, 'local-store');
-    }
     return path.join(context.globalStorageUri.fsPath, 'local-store');
+}
+
+function getLocalBm25StorePath(context) {
+    return path.join(context.globalStorageUri.fsPath, 'local-store-bm25');
 }
 
 function ensureStoragePath(context) {
     const storagePath = getLocalStorePath(context);
     fs.mkdirSync(storagePath, { recursive: true });
     return storagePath;
+}
+
+function ensureBm25StoragePath(context) {
+    const bm25Path = getLocalBm25StorePath(context);
+    fs.mkdirSync(bm25Path, { recursive: true });
+    return bm25Path;
 }
 
 function getDocumentDirectory(storagePath, docId) {
@@ -179,6 +184,7 @@ function formatDocumentDetails(metadata, content) {
 
 module.exports = {
     ensureStoragePath,
+    ensureBm25StoragePath,
     getDocumentDirectory,
     getDocumentImagesDirectory,
     readAllMetadata,

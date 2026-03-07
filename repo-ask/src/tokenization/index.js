@@ -2,6 +2,8 @@ const { PATTERNS } = require('./patterns');
 const { generate_structural_regex } = require('./structural');
 const { generate_ngrams } = require('./ngrams');
 const { extract_capital_sequences } = require('./extractors');
+const { generateExtendedKeywords } = require('./extendedKeywords');
+const { tokenize } = require('./tokenize');
 
 function identify_pattern(token) {
     const clean_token = token.replace(/^[.,;:()\[\]{}'"\s]+|[.,;:()\[\]{}'"\s]+$/g, '');
@@ -15,8 +17,10 @@ function identify_pattern(token) {
 }
 
 module.exports = {
+    tokenize,
     generate_structural_regex,
     generate_ngrams,
     identify_pattern,
-    extract_capital_sequences
+    extract_capital_sequences,
+    generateExtendedKeywords
 };

@@ -16,6 +16,7 @@
     "onCommand:repo-ask.annotate",
     "onCommand:repo-ask.rank",
     "onCommand:repo-ask.check",
+    "onCommand:repo-ask.checkAllDocs",
     "onChatParticipant:repoask",
     "onLanguageModelTool:repoask_refresh",
     "onLanguageModelTool:repoask_annotate",
@@ -140,12 +141,68 @@
             }
           }
         }
+      },
+      {
+        "name": "repoask_read_metadata",
+        "tags": [
+          "repoask",
+          "metadata",
+          "read"
+        ],
+        "toolReferenceName": "repoaskReadMetadata",
+        "displayName": "RepoAsk Read Metadata",
+        "modelDescription": "Read the metadata of local documents.",
+        "userDescription": "Read the metadata of local documents.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(bracket)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional list of document ids to read metadata for. Leave empty to read all metadata."
+            }
+          }
+        }
+      },
+      {
+        "name": "repoask_read_content",
+        "tags": [
+          "repoask",
+          "content",
+          "read"
+        ],
+        "toolReferenceName": "repoaskReadContent",
+        "displayName": "RepoAsk Read Content",
+        "modelDescription": "Read the full markdown content of local documents.",
+        "userDescription": "Read the content of local documents.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional list of document ids to read content for. Leave empty to read all."
+            }
+          }
+        }
       }
     ],
     "commands": [
       {
         "command": "repo-ask.check",
         "title": "RepoAsk: Check"
+      },
+      {
+        "command": "repo-ask.checkAllDocs",
+        "title": "RepoAsk: Check ALL Docs"
       },
       {
         "command": "repo-ask.rank",
@@ -182,6 +239,11 @@
     "configuration": {
       "title": "RepoAsk",
       "properties": {
+        "repoAsk.initKeywordNum": {
+          "type": "number",
+          "default": 50,
+          "description": "Init Keyword Num"
+        },
         "repoAsk.confluence": {
           "type": "object",
           "default": {

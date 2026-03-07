@@ -51,9 +51,62 @@ function createSidebarController(deps) {
                                 id: message.docId,
                                 content,
                                 contentHtml,
-                                metadata: documentService.formatMetadataEntries(metadata)
+                                metadata: metadata || null
                             }
                         });
+                    }
+
+                    if (message?.command === 'generateMetadata' && message.docId) {
+                        const docId = String(message.docId);
+                        docsWebviewView.webview.postMessage({
+                            command: 'metadataGenerationState',
+                            payload: {
+                                docId,
+                                isGenerating: true
+                            }
+                        });
+                        try {
+                            const updatedMetadata = await documentService.generateStoredMetadataById(docId);
+                            upsertSidebarDocument(updatedMetadata);
+                            docsWebviewView.webview.postMessage({
+                                command: 'metadataUpdated',
+                                payload: {
+                                    id: updatedMetadata.id,
+                                    metadata: updatedMetadata
+                                }
+                            });
+                            vscode.window.showInformationMessage(`Generated summary and keywords for: ${updatedMetadata.title || updatedMetadata.id}`);
+                        } catch (error) {
+                            vscode.window.showErrorMessage(`Failed to generate metadata: ${error.message}`);
+                        } finally {
+                            docsWebviewView.webview.postMessage({
+                                command: 'metadataGenerationState',
+                                payload: {
+                                    docId,
+                                    isGenerating: false
+                                }
+                            });
+                        }
+                    }
+
+                    if (message?.command === 'saveMetadata' && message.docId) {
+                        try {
+                            const updatedMetadata = documentService.updateStoredMetadataById(String(message.docId), {
+                                summary: message.summary,
+                                keywords: message.keywords
+                            });
+                            upsertSidebarDocument(updatedMetadata);
+                            docsWebviewView.webview.postMessage({
+                                command: 'metadataUpdated',
+                                payload: {
+                                    id: updatedMetadata.id,
+                                    metadata: updatedMetadata
+                                }
+                            });
+                            vscode.window.showInformationMessage(`Saved metadata for: ${updatedMetadata.title || updatedMetadata.id}`);
+                        } catch (error) {
+                            vscode.window.showErrorMessage(`Failed to save metadata: ${error.message}`);
+                        }
                     }
 
                     if (message?.command === 'searchDocs') {
@@ -118,6 +171,9 @@ function createSidebarController(deps) {
                             }
 
                             const deletion = deleteDocumentFiles(storagePath, docId);
+                            if (typeof documentService.removeBm25DocumentById === 'function') {
+                                documentService.removeBm25DocumentById(docId);
+                            }
                             docsWebviewView.webview.postMessage({
                                 command: 'docDeleted',
                                 payload: { id: docId }
@@ -198,6 +254,38 @@ function createSidebarController(deps) {
         });
     }
 
+    function revealDocumentInSidebar(docId) {
+        const id = String(docId || '').trim();
+        if (!id || !docsWebviewView) {
+            return false;
+        }
+
+        const metadata = readAllMetadata(storagePath).find(doc => String(doc.id) === id);
+        if (!metadata) {
+            return false;
+        }
+
+        const rawContent = readDocumentContent(storagePath, metadata.id) || 'No local markdown content found.';
+        const content = rewriteMarkdownImageLinksForWebview(rawContent, metadata.id, docsWebviewView.webview);
+        const contentHtml = renderMarkdownForWebview(content);
+
+        if (typeof docsWebviewView.show === 'function') {
+            docsWebviewView.show(true);
+        }
+
+        docsWebviewView.webview.postMessage({
+            command: 'selectDoc',
+            payload: {
+                id,
+                content,
+                contentHtml,
+                metadata
+            }
+        });
+
+        return true;
+    }
+
     function getSidebarHtml(webview) {
         const htmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'index.html');
         const cssPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'styles.css');
@@ -273,7 +361,8 @@ function createSidebarController(deps) {
         sidebarProvider,
         refreshSidebarView,
         setSidebarSyncStatus,
-        upsertSidebarDocument
+        upsertSidebarDocument,
+        revealDocumentInSidebar
     };
 }
 
