@@ -48,7 +48,11 @@ function createSidebarController(deps) {
                     if (message?.command === 'refreshDocs') {
                         const { isAll, arg } = message;
                         if (isAll) {
-                            vscode.commands.executeCommand('repo-ask.refresh', '');
+                            if (arg) {
+                                vscode.commands.executeCommand('repo-ask.refresh', { type: 'recursive', arg: String(arg).trim() });
+                            } else {
+                                vscode.commands.executeCommand('repo-ask.refresh', '');
+                            }
                         } else if (arg) {
                             vscode.commands.executeCommand('repo-ask.refresh', String(arg).trim());
                         }

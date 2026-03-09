@@ -255,6 +255,11 @@ function createLanguageModelTools(deps) {
                 
                 try {
                     execSync('git rev-parse --is-inside-work-tree', { cwd: workspaceFolder, stdio: 'ignore' });
+                    
+                    const currentBranch = execSync('git branch --show-current', { cwd: workspaceFolder, encoding: 'utf8' }).trim();
+                    if (currentBranch === 'main' || currentBranch === 'master') {
+                        return toToolResult(`You are currently on the ${currentBranch} branch. Please switch to a dev branch first.`, { diff: null, error: `On ${currentBranch} branch` });
+                    }
                 } catch (e) {
                     return toToolResult('This workspace is not a valid git repository or git is not installed/permitted.', { diff: null, error: 'Not a git repository or git lacks permission' });
                 }

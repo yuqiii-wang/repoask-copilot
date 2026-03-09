@@ -25,7 +25,13 @@ function getConfluenceConfig() {
 function getHeaders(securityToken) {
     const headers = {};
     if (securityToken) {
-        headers['Authorization'] = `Bearer ${securityToken}`;
+        if (securityToken.startsWith('Bearer ') || securityToken.startsWith('Basic ')) {
+            headers['Authorization'] = securityToken;
+        } else if (securityToken.includes(':')) {
+            headers['Authorization'] = `Basic ${Buffer.from(securityToken).toString('base64')}`;
+        } else {
+            headers['Authorization'] = `Bearer ${securityToken}`;
+        }
     }
     return headers;
 }
@@ -37,10 +43,20 @@ async function fetchConfluencePage(pageArg) {
     const headers = getHeaders(securityToken);
 
     try {
-        const response = await axios.get(resolveUrl, { timeout: REQUEST_TIMEOUT_MS, headers });
+        const response = await axios.get(resolveUrl, { 
+            timeout: REQUEST_TIMEOUT_MS, 
+            headers,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
         return response.data;
     } catch {
-        const response = await axios.get(`${base}/rest/api/content/${encodeURIComponent(pageArg)}`, { timeout: REQUEST_TIMEOUT_MS, headers });
+        const response = await axios.get(`${base}/rest/api/content/${encodeURIComponent(pageArg)}?expand=body.storage`, { 
+            timeout: REQUEST_TIMEOUT_MS, 
+            headers,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
         return response.data;
     }
 }
@@ -48,11 +64,28 @@ async function fetchConfluencePage(pageArg) {
 async function fetchAllConfluencePages() {
     const { url: base, securityToken } = getConfluenceConfig();
     const headers = getHeaders(securityToken);
-    const response = await axios.get(`${base}/rest/api/content`, { timeout: REQUEST_TIMEOUT_MS, headers });
+    const response = await axios.get(`${base}/rest/api/content?expand=body.storage`, { 
+        timeout: REQUEST_TIMEOUT_MS, 
+        headers,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+    });
     return response.data;
 }
 
 module.exports = {
     fetchConfluencePage,
-    fetchAllConfluencePages
+    fetchAllConfluencePages,
+    fetchConfluencePageChildren
 };
+async function fetchConfluencePageChildren(pageId) {
+    const { url: base, securityToken } = getConfluenceConfig();
+    const headers = getHeaders(securityToken);
+    const response = await axios.get(`${base}/rest/api/content/${encodeURIComponent(pageId)}/child/page?expand=body.storage`, {
+        timeout: REQUEST_TIMEOUT_MS,
+        headers,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+    });
+    return response.data;
+}

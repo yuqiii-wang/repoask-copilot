@@ -108,5 +108,22 @@ async def index():
     )
 
 
+@app.get("/rest/api/content/{page_id}/child/page")
+async def get_page_children(page_id: str):
+    """Get children for a page (mocked using linked_pages)."""
+    pages = load_generated_pages()
+    if page_id not in pages:
+        raise HTTPException(status_code=404, detail="Page not found")
+        
+    page = pages[page_id]
+    linked_ids = page.get("metadata", {}).get("linked_pages", [])
+    results = []
+    for lid in linked_ids:
+        if lid in pages:
+            results.append(page_for_rest_api(pages[lid]))
+            
+    return {"results": results}
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

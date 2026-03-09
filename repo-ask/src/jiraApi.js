@@ -25,7 +25,13 @@ function getJiraConfig() {
 function getHeaders(securityToken) {
     const headers = {};
     if (securityToken) {
-        headers['Authorization'] = `Bearer ${securityToken}`;
+        if (securityToken.startsWith('Bearer ') || securityToken.startsWith('Basic ')) {
+            headers['Authorization'] = securityToken;
+        } else if (securityToken.includes(':')) {
+            headers['Authorization'] = `Basic ${Buffer.from(securityToken).toString('base64')}`;
+        } else {
+            headers['Authorization'] = `Bearer ${securityToken}`;
+        }
     }
     return headers;
 }
@@ -37,10 +43,20 @@ async function fetchJiraIssue(issueArg) {
     const headers = getHeaders(securityToken);
 
     try {
-        const response = await axios.get(resolveUrl, { timeout: REQUEST_TIMEOUT_MS, headers });
+        const response = await axios.get(resolveUrl, { 
+            timeout: REQUEST_TIMEOUT_MS, 
+            headers,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
         return response.data;
     } catch {
-        const response = await axios.get(`${base}/rest/api/2/issue/${encodeURIComponent(issueArg)}`, { timeout: REQUEST_TIMEOUT_MS, headers });
+        const response = await axios.get(`${base}/rest/api/2/issue/${encodeURIComponent(issueArg)}`, { 
+            timeout: REQUEST_TIMEOUT_MS, 
+            headers,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
         return response.data;
     }
 }
@@ -49,7 +65,12 @@ async function fetchAllJiraIssues(project) {
     const { url: base, securityToken } = getJiraConfig();
     const headers = getHeaders(securityToken);
     const query = project ? `?project=${encodeURIComponent(project)}` : '';
-    const response = await axios.get(`${base}/rest/api/2/search${query}`, { timeout: REQUEST_TIMEOUT_MS, headers });
+    const response = await axios.get(`${base}/rest/api/2/search${query}`, { 
+        timeout: REQUEST_TIMEOUT_MS, 
+        headers,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+    });
     const issues = Array.isArray(response.data?.issues) ? response.data.issues : [];
     return issues;
 }

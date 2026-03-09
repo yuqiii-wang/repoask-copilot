@@ -1,11 +1,39 @@
 module.exports = function(context) {
-  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, checkLocalDocumentsAgentic,        annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl } = context;
+  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, checkLocalDocumentsAgentic,        annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl } = context;
 
 async function refreshDocument(pageArg, options = {}) {
   const page = await fetchConfluencePage(pageArg);
   const metadata = await processDocument(page);
   await finalizeBm25KeywordsForDocuments([metadata.id]);
   notifyDocumentProcessed(options, metadata, 1, 1);
+}
+
+async function refreshConfluenceHierarchy(pageArg, options = {}) {
+  const rootPage = await fetchConfluencePage(pageArg);
+  const pagesToProcess = [rootPage];
+  const processedIds = new Set();
+  let currentIndex = 0;
+  const delay = (ms) => new Promise(res => setTimeout(res, ms));
+  while (pagesToProcess.length > 0) {
+    const page = pagesToProcess.shift();
+    if (processedIds.has(page.id)) continue;
+    processedIds.add(page.id);
+    const metadata = await processDocument(page);
+    await finalizeBm25KeywordsForDocuments([metadata.id]);
+    currentIndex++;
+    notifyDocumentProcessed(options, metadata, currentIndex, currentIndex + pagesToProcess.length);
+    try {
+      const childrenData = await fetchConfluencePageChildren(page.id);
+      if (childrenData && childrenData.results) {
+        for (const child of childrenData.results) {
+          if (!processedIds.has(child.id)) pagesToProcess.push(child);
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to fetch children for page ${page.id}`, e);
+    }
+    if (pagesToProcess.length > 0) await delay(10000);
+  }
 }
 
 async function refreshAllDocuments(options = {}) {
@@ -185,6 +213,7 @@ async function finalizeBm25KeywordsForDocuments(docIds = []) {
 
   return {
     refreshDocument,
+    refreshConfluenceHierarchy,
     refreshAllDocuments,
     refreshJiraIssue,
     notifyDocumentProcessed,

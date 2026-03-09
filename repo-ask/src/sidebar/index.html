@@ -574,7 +574,9 @@
                     renderSyncError('');
                     renderSuccessMessage('');
                     renderSyncStatus('downloading from confluence/jira cloud ...');
-                    vscode.postMessage({ command: 'refreshDocs', isAll: true });
+                    const syncAllInput = document.getElementById('sync-all-input');
+                    const allArg = syncAllInput ? syncAllInput.value.trim() : '';
+                    vscode.postMessage({ command: 'refreshDocs', isAll: true, arg: allArg });
                 } else {
                     const arg = syncSingleInput ? syncSingleInput.value.trim() : '';
                     if (!arg) return;

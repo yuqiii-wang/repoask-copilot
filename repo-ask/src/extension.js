@@ -1,6 +1,6 @@
 const vscode = require('vscode');
 
-const { fetchConfluencePage, fetchAllConfluencePages } = require('./confluenceApi');
+const { fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren } = require('./confluenceApi');
 const { fetchJiraIssue } = require('./jiraApi');
 const {
     truncate,
@@ -44,6 +44,7 @@ function setupExtension(context) {
         indexStoragePath,
         fetchConfluencePage,
         fetchAllConfluencePages,
+        fetchConfluencePageChildren,
         fetchJiraIssue,
         truncate,
         tokenize,

@@ -2,7 +2,20 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = function(context) {
-  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, checkLocalDocumentsAgentic, refreshDocument, refreshAllDocuments, refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, finalizeBm25KeywordsForDocuments, annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting,             } = context;
+  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, 
+    fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, 
+    htmlToMarkdown, generateKeywords, generateExtendedKeywords, 
+    generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, 
+    rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, 
+    checkLocalDocumentsAgentic, refreshDocument, refreshAllDocuments, 
+    refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, 
+    finalizeBm25KeywordsForDocuments, annotateDocumentByArg, annotateAllDocuments,
+     annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, 
+     normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, 
+     resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, 
+     getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, 
+     normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, 
+     mergeKeywordsPreservingSignals, appendKeywordsToExisting, cheerio} = context;
 
 function writeDocumentPromptFile(metadata, content) {
   const workspaceRoot = getWorkspaceRootPath();

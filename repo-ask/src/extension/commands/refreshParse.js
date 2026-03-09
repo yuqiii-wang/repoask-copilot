@@ -7,10 +7,20 @@ function registerRefreshAndParseCommands(deps) {
     } = deps;
 
     const refreshDisposable = vscode.commands.registerCommand('repo-ask.refresh', async function (directArg) {
-        const arg = typeof directArg === 'string' ? directArg : await vscode.window.showInputBox({
-            prompt: 'Enter Confluence page id/title/link or Jira issue key, or leave empty to refresh all Confluence docs',
-            placeHolder: 'e.g., 1, Technical Documentation Guide, Confluence URL, or PROJECT-1003'
-        });
+        let arg = null;
+        let isRecursiveUrl = false;
+        
+        if (directArg && typeof directArg === 'object' && directArg.type === 'recursive') {
+            arg = directArg.arg;
+            isRecursiveUrl = true;
+        } else if (typeof directArg === 'string') {
+            arg = directArg;
+        } else {
+            arg = await vscode.window.showInputBox({
+                prompt: 'Enter Confluence page id/title/link or Jira issue key, or leave empty to refresh all Confluence docs',
+                placeHolder: 'e.g., 1, Technical Documentation Guide, Confluence URL, or PROJECT-1003'
+            });
+        }
 
         try {
             // Do not clear status here to preserve "downloading..." state from UI
@@ -39,7 +49,16 @@ function registerRefreshAndParseCommands(deps) {
             if (arg && arg.trim().length > 0) {
                 const parsed = await parseRefreshArg(vscode, arg.trim());
                 sidebar.setSidebarSyncStatus('downloading from confluence/jira cloud ...');
-                if (parsed.found && parsed.source === 'regex-jira') {
+                
+                if (isRecursiveUrl) {
+                    const resolvedArg = parsed.found && parsed.arg ? parsed.arg : arg.trim();
+                    await documentService.refreshConfluenceHierarchy(resolvedArg, createRefreshOptions('confluence hierarchy'));
+                    const successMsg = `Refreshed confluence hierarchy for: ${resolvedArg}`;
+                    vscode.window.showInformationMessage(successMsg);
+                    if (typeof sidebar.setSidebarSyncSuccess === 'function') {
+                        sidebar.setSidebarSyncSuccess(successMsg);
+                    }
+                } else if (parsed.found && parsed.source === 'regex-jira') {
                     await documentService.refreshJiraIssue(parsed.arg, createRefreshOptions('jira'));
                     const successMsg = `Refreshed Jira issue for: ${parsed.arg}`;
                     vscode.window.showInformationMessage(successMsg);
