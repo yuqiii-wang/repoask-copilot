@@ -2,7 +2,7 @@
 name: project-agent
 description: Project implementation and maintenance agent for the local Confluence simulator and the @RepoAsk VS Code extension.
 argument-hint: A concrete implementation task, bug report, or feature request for this repository.
-tools: [vscode, execute, read, agent, edit, search, web, todo, repo-ask.repo-ask/repoaskRefresh, repo-ask.repo-ask/repoaskAnnotate, repo-ask.repo-ask/repoaskRank, repo-ask.repo-ask/repoaskCheck]
+tools: [vscode, execute, read, agent, edit, search, web, todo, repo-ask.repo-ask/repoaskRefresh, repo-ask.repo-ask/repoaskAnnotate, repo-ask.repo-ask/repoaskRank, repo-ask.repo-ask/repoaskDocCheck]
 ---
 This agent is responsible for end-to-end work in this repository, including the FastAPI dummy Confluence server, the VS Code extension `@RepoAsk`, and supporting tokenization utilities.
 
@@ -78,14 +78,14 @@ Current code map (verified):
 - Document orchestration (refresh/annotate/rank): `repo-ask/src/extension/documentService/*`
 - LLM tool/arg parsing helpers: `repo-ask/src/extension/llm.js`
 - LM tool registration + chat refresh fallback UI: `repo-ask/src/extension/lmTools.js`
-- Command registrations / definitions: `repo-ask/src/extension/commands.js`, `repo-ask/src/extension/commands/*` (e.g. `refreshParse.js`)
+- Command registrations / definitions: currently in `repo-ask/src/extension.js` (no separate `commands/` directory).
 - Chat handlers & Prompt Context: `repo-ask/src/extension/chat/generalAnswer.js`, `repo-ask/src/extension/chat/agentPrompt.txt`, `repo-ask/src/extension/promptContext.js`
 - Confluence/Jira API adapters: `repo-ask/src/confluenceApi.js`, `repo-ask/src/jiraApi.js`
-- Local storage contract (doc directory with `content.md` + `metadata.json`, Indices in `local-store-index/`, plus legacy fallback): `repo-ask/src/storage.js`
+- Local storage contract (doc directory with `content.md` + `metadata.json`, Indices in `local-store-index/`, legacy fallback, default docs initialized from `src/default_docs/`): `repo-ask/src/storage.js`
 - Ranking engines: `repo-ask/src/bm25.js`, `repo-ask/src/relevance.js`
 - Text conversion + keyword/summary fallback: `repo-ask/src/textProcessing.js`
 - Tokenization helpers: `repo-ask/src/tokenization/*` (extractors, ngrams, structural, patterns)
-- Sidebar controller + UI: `repo-ask/src/extension/sidebarController.js`, `repo-ask/src/sidebar/index.html`, `repo-ask/src/sidebar/styles.css`, `repo-ask/src/sidebar/refreshPopup.html`
+- Sidebar controller + UI: `repo-ask/src/extension/sidebarController.js`, `repo-ask/src/sidebar/*` (index.html, styles.css, docStore.html/js, metadata.html/js, refreshPopup.html)
 - Dummy servers: `dummy-servers/confluence_server.py`, `dummy-servers/jira_server.py`, `dummy-servers/generate_dummy_data.py`
 
 Current behavior snapshot:

@@ -26,12 +26,12 @@ const { createSidebarController } = require('./extension/sidebarController');
 const { createLanguageModelTools } = require('./extension/lmTools');
 const { loadWorkspacePromptContext } = require('./extension/promptContext');
 const { answerGeneralPromptQuestion } = require('./extension/chat/generalAnswer');
-const { registerCoreCommands } = require('./extension/commands');
+const { answerCodePromptQuestion } = require('./extension/chat/codeAnswer');
 
 const EMPTY_STORE_HINT = 'No local documents found. Use the sidebar popup to sync to Confluence Cloud.';
 const TOOL_NAMES = {
     rank: 'repoask_rank',
-    check: 'repoask_check'
+    check: 'repoask_doc_check'
 };
 
 function setupExtension(context) {
@@ -86,27 +86,13 @@ function setupExtension(context) {
         toolNames: TOOL_NAMES
     });
 
-    const commandDisposables = registerCoreCommands({
-        vscode,
-        storagePath,
-        sidebar,
-        documentService,
-        parseRefreshArg,
-        readAllMetadata,
-        readDocumentContent,
-        formatDocumentDetails,
-        findRelevantDocuments,
-        rankDocumentsByIdf,
-        tokenize,
-        truncate
-    });
-
     const webviewProviderDisposable = vscode.window.registerWebviewViewProvider('repo-ask-documents', sidebar.sidebarProvider);
     const lmToolDisposables = lmTools.registerRepoAskLanguageModelTools();
 
-    let repoAskParticipant;
+    let repoAskDocParticipant;
+    let repoAskCodeParticipant;
     if (vscode.chat && typeof vscode.chat.createChatParticipant === 'function') {
-        repoAskParticipant = vscode.chat.createChatParticipant('repoask', async (request, chatContext, response) => {
+        repoAskDocParticipant = vscode.chat.createChatParticipant('repoaskDoc', async (request, chatContext, response) => {
             const prompt = request.prompt?.trim() || '';
             const workspacePromptContext = loadWorkspacePromptContext(vscode);
 
@@ -124,24 +110,54 @@ function setupExtension(context) {
                 }, {
                     metadataList: readAllMetadata(storagePath),
                     forceCheckAllDocsButton,
-                    request // Pass the request to access toolInvocationToken
+                    request,
+                    scenario: 'docs'
                 });
             } catch (error) {
                 response.markdown(`Unable to answer with prompt context: ${error.message}`);
             }
         });
 
-        repoAskParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
+        repoAskDocParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
+
+        repoAskCodeParticipant = vscode.chat.createChatParticipant('repoaskCode', async (request, chatContext, response) => {
+            const prompt = request.prompt?.trim() || '';
+            const workspacePromptContext = loadWorkspacePromptContext(vscode);
+
+            if (!prompt) {
+                response.markdown('Ask a question.');
+                return;
+            }
+
+            try {
+                await answerCodePromptQuestion(vscode, prompt, workspacePromptContext.text, response, {
+                    truncate,
+                    tokenize,
+                    rankDocumentsByIdf
+                }, {
+                    metadataList: readAllMetadata(storagePath),
+                    forceCheckAllDocsButton: false,
+                    request,
+                    scenario: 'code'
+                });
+            } catch (error) {
+                response.markdown(`Unable to answer with prompt context: ${error.message}`);
+            }
+        });
+
+        repoAskCodeParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
     }
 
     const baseSubscriptions = [
-        ...commandDisposables,
         webviewProviderDisposable,
         ...lmToolDisposables
     ];
 
-    if (repoAskParticipant) {
-        baseSubscriptions.push(repoAskParticipant);
+    if (repoAskDocParticipant) {
+        baseSubscriptions.push(repoAskDocParticipant);
+    }
+    if (repoAskCodeParticipant) {
+        baseSubscriptions.push(repoAskCodeParticipant);
     }
 
     context.subscriptions.push(...baseSubscriptions);

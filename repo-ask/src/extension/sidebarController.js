@@ -115,6 +115,7 @@ function createSidebarController(deps) {
                     if (message?.command === 'saveMetadata' && message.docId) {
                         try {
                             const updatedMetadata = documentService.updateStoredMetadataById(String(message.docId), {
+                                type: message.type,
                                 summary: message.summary,
                                 keywords: message.keywords
                             });
@@ -134,10 +135,16 @@ function createSidebarController(deps) {
 
                     if (message?.command === 'searchDocs') {
                         const query = String(message.query || '').trim();
-                        const results = query.length > 0
+                        const filterType = String(message.type || '').trim();
+                        let results = query.length > 0
                             ? documentService.rankLocalDocuments(query, 50)
                             : readAllMetadata(storagePath)
                                 .sort((a, b) => String(b.last_updated).localeCompare(String(a.last_updated)));
+
+                        if (filterType) {
+                            // If doc has no type, we fallback treating it as 'confluence' due to historical data or just keep original logic
+                            results = results.filter(doc => (doc.type || 'confluence') === filterType);
+                        }
 
                         docsWebviewView.webview.postMessage({
                             command: 'searchResults',
@@ -337,18 +344,32 @@ function createSidebarController(deps) {
         const htmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'index.html');
         const cssPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'styles.css');
         const popupPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'refreshPopup.html');
+        const metadataHtmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'metadata.html');
+        const docStoreHtmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'docStore.html');
+        const metadataJsPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'metadata.js');
+        const docStoreJsPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'docStore.js');
 
         const htmlTemplate = fs.readFileSync(htmlPath.fsPath, 'utf8');
         const popupHtml = fs.existsSync(popupPath.fsPath) ? fs.readFileSync(popupPath.fsPath, 'utf8') : '';
+        const metadataHtml = fs.existsSync(metadataHtmlPath.fsPath) ? fs.readFileSync(metadataHtmlPath.fsPath, 'utf8') : '';
+        const docStoreHtml = fs.existsSync(docStoreHtmlPath.fsPath) ? fs.readFileSync(docStoreHtmlPath.fsPath, 'utf8') : '';
+
         const cssUri = webview.asWebviewUri(cssPath).toString();
+        const metadataJsUri = webview.asWebviewUri(metadataJsPath).toString();
+        const docStoreJsUri = webview.asWebviewUri(docStoreJsPath).toString();
+
         const docs = readAllMetadata(storagePath).sort((a, b) => String(b.last_updated).localeCompare(String(a.last_updated)));
 
         return htmlTemplate
             .replace('__CSS_URI__', cssUri)
+            .replace('__METADATA_JS_URI__', metadataJsUri)
+            .replace('__DOC_STORE_JS_URI__', docStoreJsUri)
             .replace('__DOCS_DATA__', JSON.stringify(docs))
             .replace('__SYNC_STATUS__', JSON.stringify(sidebarSyncStatus))
             .replace('__SYNC_ERROR__', JSON.stringify(sidebarSyncError))
             .replace('__SYNC_SUCCESS__', JSON.stringify(sidebarSyncSuccess))
+            .replace('__METADATA_HTML__', metadataHtml)
+            .replace('__DOC_STORE_HTML__', docStoreHtml)
             .replace('__REFRESH_POPUP__', popupHtml);
     }
 

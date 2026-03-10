@@ -40,7 +40,7 @@ By typing `@repoask` in the GitHub Copilot Chat, you engage with the local RAG p
 ## Tool Flow Integration
 
 Behind the scenes, the extension provides multiple LLM Tools:
-- `repoask_check`: Searches locally.
+- `repoask_doc_check`: Searches locally.
 - `repoask_refresh`: Syncs dynamically.
 - `repoask_new_code_check`: Auto-checks PR diffs and searches `.github/prompts/` to start working on new Jira tasks directly upon codebase synchronization.
 

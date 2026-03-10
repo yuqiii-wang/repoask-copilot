@@ -8,29 +8,7 @@
 </head>
 <body>
     <main class="container">
-        <header class="header" style="position: relative;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h1 class="title">Doc Store</h1>
-                <button id="open-refresh-popup-btn" class="icon-btn" aria-label="Refresh Documents" title="Refresh Documents" style="background:none;border:none;cursor:pointer;color:inherit;padding:4px;display:flex;align-items:center;">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                        <path fill-rule="evenodd" clip-rule="evenodd" d="M4.681 3H2V2h3.5l.5.5V6H5V4a5 5 0 1 0 4.53 8.36l.334.943A6 6 0 1 1 4.681 3z"/>
-                    </svg>
-                </button>
-            </div>
-            __REFRESH_POPUP__
-            <p class="subtitle">Local Confluence documents</p>
-            <p id="sync-status" class="sync-status" aria-live="polite"></p>
-            <div id="error-banner" class="error-banner" style="display: none; background: var(--vscode-editorError-background, rgba(255,0,0,0.1)); color: var(--vscode-editorError-foreground, #ff0000); padding: 8px; margin-top: 8px; border-radius: 4px; border: 1px solid var(--vscode-editorError-border, transparent); align-items: center; justify-content: space-between; font-size: 12px; word-break: break-all;">
-                <span id="error-banner-text"></span>
-                <button id="close-error-banner-btn" class="icon-btn" style="background: none; border: none; cursor: pointer; color: inherit; margin-left: 8px; font-size: 14px;" aria-label="Dismiss error" title="Dismiss error">&times;</button>
-            </div>
-            <div id="success-banner" class="success-banner" style="display: none; background: var(--vscode-editorInfo-background, rgba(0,255,0,0.1)); color: var(--vscode-editorInfo-foreground, #00ff00); padding: 8px; margin-top: 8px; border-radius: 4px; border: 1px solid var(--vscode-editorInfo-border, transparent); align-items: center; justify-content: space-between; font-size: 12px; word-break: break-all;">
-                <span id="success-banner-text"></span>
-                <button id="close-success-banner-btn" class="icon-btn" style="background: none; border: none; cursor: pointer; color: inherit; margin-left: 8px; font-size: 14px;" aria-label="Dismiss success" title="Dismiss success">&times;</button>
-            </div>
-            <input id="search-input" class="search-input" type="text" placeholder="Search local-store">
-        </header>
-        <section id="doc-list" class="doc-list"></section>
+        __DOC_STORE_HTML__
         <div id="main-splitter" class="main-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize list and detail"></div>
         <section class="viewer">
             <section class="content-pane">
@@ -41,98 +19,56 @@
                 <div id="doc-content" class="doc-content">Select a document to view local content.</div>
             </section>
             <div id="viewer-splitter" class="viewer-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize content and metadata"></div>
-            <section class="metadata-pane">
-                <div class="viewer-header">
-                    <h2 class="viewer-title">Metadata</h2>
-                    <div class="metadata-actions">
-                        <button id="generate-metadata-btn" class="action-btn" type="button" disabled>AI Gen</button>
-                        <button id="metadata-edit-toggle-btn" class="action-btn" type="button" disabled>Edit</button>
-                    </div>
-                </div>
-                <label class="metadata-label" for="summary-input">Summary</label>
-                <textarea id="summary-input" class="metadata-textarea" rows="3" placeholder="Summary is empty. Generate or edit it."></textarea>
-                <label class="metadata-label" for="keywords-input">Keywords (comma separated)</label>
-                <textarea id="keywords-input" class="metadata-textarea metadata-textarea-keywords" rows="2" placeholder="keyword-a, keyword-b"></textarea>
-                <ul id="metadata-list" class="metadata-list">
-                    <li class="metadata-item">title: -</li>
-                </ul>
-            </section>
+            __METADATA_HTML__
         </section>
     </main>
 
     <script>
         const vscode = acquireVsCodeApi();
         const docs = __DOCS_DATA__;
-        const docListEl = document.getElementById('doc-list');
-        const searchInputEl = document.getElementById('search-input');
+        
         const docContentEl = document.getElementById('doc-content');
-        const metadataListEl = document.getElementById('metadata-list');
-        const syncStatusEl = document.getElementById('sync-status');
         const addToPromptsBtnEl = document.getElementById('add-to-prompts-btn');
-        const generateMetadataBtnEl = document.getElementById('generate-metadata-btn');
-        const metadataEditToggleBtnEl = document.getElementById('metadata-edit-toggle-btn');
-        const summaryInputEl = document.getElementById('summary-input');
-        const keywordsInputEl = document.getElementById('keywords-input');
-        const metadataPaneEl = document.querySelector('.metadata-pane');
         const containerEl = document.querySelector('.container');
         const headerEl = document.querySelector('.header');
         const mainSplitterEl = document.getElementById('main-splitter');
         const viewerEl = document.querySelector('.viewer');
         const viewerSplitterEl = document.getElementById('viewer-splitter');
-        const initialSyncStatus = __SYNC_STATUS__;
-        const initialSyncError = __SYNC_ERROR__;
-        const initialSyncSuccess = __SYNC_SUCCESS__;
-        let displayedDocs = Array.isArray(docs)
-            ? docs.map(doc => ({ id: doc.id, title: doc.title, last_updated: doc.last_updated || '' }))
-            : [];
+        
+        let displayedDocs = Array.isArray(docs) ? docs.map(doc => ({ id: doc.id, title: doc.title, last_updated: doc.last_updated || '' })) : [];
         let selectedDocId = null;
+
         let isViewerResizing = false;
         let isMainResizing = false;
         let mainTopPaneRatio = 0.4;
         let topPaneRatio = 0.6;
-        let selectedMetadata = null;
-        let isMetadataEditMode = false;
-        let isMetadataGenerating = false;
         const layoutGap = 10;
         const layoutSplitterHeight = 6;
 
-        function clamp(value, min, max) {
-            return Math.max(min, Math.min(max, value));
-        }
+        function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
         function applyMainTopHeight(topHeightPx) {
-            if (!containerEl || !headerEl) {
-                return;
-            }
-
+            if (!containerEl || !headerEl) return;
             const containerHeight = containerEl.clientHeight || 0;
             const headerHeight = headerEl.offsetHeight || 0;
             const totalResizableHeight = Math.max(0, containerHeight - headerHeight - (layoutGap * 3) - layoutSplitterHeight);
-
             const minTop = Math.floor(totalResizableHeight * 0.3);
             const maxTop = Math.ceil(totalResizableHeight * 0.7);
             const safeTop = clamp(topHeightPx, minTop, maxTop);
             const bottomHeight = Math.max(0, totalResizableHeight - safeTop);
             mainTopPaneRatio = totalResizableHeight > 0 ? (safeTop / totalResizableHeight) : 0.4;
-
             containerEl.style.gridTemplateRows = `auto ${safeTop}px ${layoutSplitterHeight}px ${bottomHeight}px`;
         }
 
         function onMainSplitterPointerMove(event) {
-            if (!isMainResizing || !headerEl) {
-                return;
-            }
-
+            if (!isMainResizing || !headerEl) return;
             const headerRect = headerEl.getBoundingClientRect();
             const topHeight = event.clientY - headerRect.bottom - layoutGap;
             applyMainTopHeight(topHeight);
         }
 
         function stopMainSplitterResize() {
-            if (!isMainResizing) {
-                return;
-            }
-
+            if (!isMainResizing) return;
             isMainResizing = false;
             document.body.classList.remove('is-resizing');
             window.removeEventListener('pointermove', onMainSplitterPointerMove);
@@ -140,38 +76,26 @@
         }
 
         function applyViewerTopHeight(topHeightPx) {
-            if (!viewerEl) {
-                return;
-            }
-
+            if (!viewerEl) return;
             const viewerHeight = viewerEl.clientHeight || 0;
-            const splitterHeight = 6;
-            const totalResizableHeight = Math.max(0, viewerHeight - splitterHeight);
-
+            const totalResizableHeight = Math.max(0, viewerHeight - layoutSplitterHeight);
             const minTop = Math.floor(totalResizableHeight * 0.3);
             const maxTop = Math.ceil(totalResizableHeight * 0.7);
             const safeTop = clamp(topHeightPx, minTop, maxTop);
             const bottomHeight = Math.max(0, totalResizableHeight - safeTop);
             topPaneRatio = totalResizableHeight > 0 ? (safeTop / totalResizableHeight) : 0.6;
-
-            viewerEl.style.gridTemplateRows = `${safeTop}px ${splitterHeight}px ${bottomHeight}px`;
+            viewerEl.style.gridTemplateRows = `${safeTop}px ${layoutSplitterHeight}px ${bottomHeight}px`;
         }
 
         function onSplitterPointerMove(event) {
-            if (!isViewerResizing || !viewerEl) {
-                return;
-            }
-
+            if (!isViewerResizing || !viewerEl) return;
             const rect = viewerEl.getBoundingClientRect();
             const topHeight = event.clientY - rect.top;
             applyViewerTopHeight(topHeight);
         }
 
         function stopSplitterResize() {
-            if (!isViewerResizing) {
-                return;
-            }
-
+            if (!isViewerResizing) return;
             isViewerResizing = false;
             document.body.classList.remove('is-resizing');
             window.removeEventListener('pointermove', onSplitterPointerMove);
@@ -194,350 +118,15 @@
             window.addEventListener('pointerup', stopSplitterResize);
         });
 
-        function renderSyncStatus(message) {
-            const text = String(message || '').trim();
-            const isDownloadingFromSource = text.toLowerCase().includes('downloading from');
-            syncStatusEl.textContent = text;
-            syncStatusEl.classList.toggle('visible', text.length > 0);
-            syncStatusEl.classList.toggle('loading', isDownloadingFromSource);
-            
-            const refreshIconBtn = document.getElementById('open-refresh-popup-btn');
-            if (refreshIconBtn) {
-                if (isDownloadingFromSource) {
-                    refreshIconBtn.classList.add('is-spinning');
-                    refreshIconBtn.disabled = true;
-                    refreshIconBtn.style.opacity = '0.5';
-                    refreshIconBtn.style.cursor = 'not-allowed';
-                    refreshIconBtn.title = 'Refresh in progress...';
-                } else {
-                    refreshIconBtn.classList.remove('is-spinning');
-                    refreshIconBtn.disabled = false;
-                    refreshIconBtn.style.opacity = '1';
-                    refreshIconBtn.style.cursor = 'pointer';
-                    refreshIconBtn.title = 'Refresh Documents';
-                }
-            }
-        }
-
-        function renderSyncError(message) {
-            const errorBanner = document.getElementById('error-banner');
-            const errorBannerText = document.getElementById('error-banner-text');
-            const text = String(message || '').trim();
-            if (text.length > 0) {
-                errorBannerText.textContent = `Error: ${text}`;
-                errorBanner.style.display = 'flex';
-                document.getElementById('success-banner').style.display = 'none';
-            } else {
-                errorBanner.style.display = 'none';
-            }
-        }
-
-        function renderSuccessMessage(message) {
-            const successBanner = document.getElementById('success-banner');
-            const successBannerText = document.getElementById('success-banner-text');
-            const text = String(message || '').trim();
-            if (text.length > 0) {
-                successBannerText.textContent = `${text}`;
-                successBanner.style.display = 'flex';
-                document.getElementById('error-banner').style.display = 'none';
-            } else {
-                successBanner.style.display = 'none';
-            }
-        }
-
-        document.getElementById('close-error-banner-btn')?.addEventListener('click', () => {
-            renderSyncError('');
-            vscode.postMessage({ command: 'clearSyncError' });
-        });
-
-        document.getElementById('close-success-banner-btn')?.addEventListener('click', () => {
-            renderSuccessMessage('');
-            vscode.postMessage({ command: 'clearSyncSuccess' });
-        });
-
         function escapeHtml(value) {
-            return String(value || '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        function toMetadataItems(metadata) {
-            if (!metadata || typeof metadata !== 'object') {
-                return [];
-            }
-
-            return Object.entries(metadata)
-                .filter(([key]) => key !== 'summary' && key !== 'keywords' && key !== 'extended_keywords')
-                .map(([key, value]) => {
-                    if (Array.isArray(value)) {
-                        return { key, value: value.join(', ') };
-                    }
-                    if (value && typeof value === 'object') {
-                        return { key, value: JSON.stringify(value) };
-                    }
-                    return { key, value: String(value ?? '') };
-                });
-        }
-
-        function setMetadataEditMode(isEditing) {
-            isMetadataEditMode = Boolean(isEditing);
-            const canEditDoc = Boolean(selectedDocId);
-            const inputsEnabled = canEditDoc && isMetadataEditMode && !isMetadataGenerating;
-            summaryInputEl.disabled = !inputsEnabled;
-            keywordsInputEl.disabled = !inputsEnabled;
-            metadataEditToggleBtnEl.disabled = !canEditDoc || isMetadataGenerating;
-            metadataEditToggleBtnEl.textContent = isMetadataEditMode ? 'Save' : 'Edit';
-        }
-
-        function setMetadataGeneratingState(isGenerating) {
-            isMetadataGenerating = Boolean(isGenerating);
-            metadataPaneEl.classList.toggle('is-busy', isMetadataGenerating);
-            generateMetadataBtnEl.classList.toggle('is-loading', isMetadataGenerating);
-            const hasDoc = Boolean(selectedDocId);
-            generateMetadataBtnEl.disabled = !hasDoc || isMetadataGenerating;
-            metadataEditToggleBtnEl.disabled = !hasDoc || isMetadataGenerating;
-            summaryInputEl.disabled = !hasDoc || !isMetadataEditMode || isMetadataGenerating;
-            keywordsInputEl.disabled = !hasDoc || !isMetadataEditMode || isMetadataGenerating;
-        }
-
-        function renderMetadata(metadata) {
-            selectedMetadata = metadata && typeof metadata === 'object' ? metadata : null;
-            const items = toMetadataItems(selectedMetadata);
-            const canEdit = Boolean(selectedDocId);
-            generateMetadataBtnEl.disabled = !canEdit || isMetadataGenerating;
-            setMetadataEditMode(false);
-
-            summaryInputEl.value = selectedMetadata ? String(selectedMetadata.summary || '') : '';
-            const keywordValues = selectedMetadata && Array.isArray(selectedMetadata.keywords)
-                ? selectedMetadata.keywords
-                : [];
-            keywordsInputEl.value = keywordValues.join(', ');
-
-            if (items.length === 0) {
-                metadataListEl.innerHTML = '<li class="metadata-item">title: -</li>';
-                return;
-            }
-
-            metadataListEl.innerHTML = items.map(item => `
-                <li class="metadata-item">${escapeHtml(item.key)}: ${escapeHtml(item.value)}</li>
-            `).join('');
-        }
-
-        function sortDisplayedDocs() {
-            displayedDocs = displayedDocs.sort((a, b) => String(b.last_updated || '').localeCompare(String(a.last_updated || '')));
-        }
-
-        function render() {
-            if (!Array.isArray(displayedDocs) || displayedDocs.length === 0) {
-                docListEl.innerHTML = '<p class="empty">No local documents yet. Use the sync button to download from Confluence Cloud.</p>';
-                return;
-            }
-
-            docListEl.innerHTML = displayedDocs.map(doc => {
-                const title = escapeHtml(doc.title || 'Untitled');
-                const isActive = String(doc.id) === String(selectedDocId) ? ' active' : '';
-
-                return `
-                    <div class="doc-item${isActive}" data-doc-id="${escapeHtml(doc.id)}">
-                        <button class="doc-open-btn" data-doc-id="${escapeHtml(doc.id)}" title="Open ${title}">
-                            <span class="doc-title">${title}</span>
-                        </button>
-                        <button class="doc-delete-btn" data-doc-id="${escapeHtml(doc.id)}" title="Delete ${title}" aria-label="Delete ${title}">×</button>
-                    </div>
-                `;
-            }).join('');
-
-            document.querySelectorAll('.doc-open-btn').forEach((buttonEl) => {
-                buttonEl.addEventListener('click', () => {
-                    const docId = buttonEl.getAttribute('data-doc-id');
-                    selectedDocId = docId;
-                    addToPromptsBtnEl.disabled = !selectedDocId;
-                    render();
-                    vscode.postMessage({ command: 'openDoc', docId });
-                });
-            });
-
-            document.querySelectorAll('.doc-delete-btn').forEach((buttonEl) => {
-                buttonEl.addEventListener('click', () => {
-                    const docId = buttonEl.getAttribute('data-doc-id');
-                    const title = (displayedDocs.find(doc => String(doc.id) === String(docId))?.title || 'this document');
-                    vscode.postMessage({ command: 'deleteDoc', docId, title });
-                });
-            });
+            return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
         addToPromptsBtnEl.addEventListener('click', () => {
-            if (!selectedDocId) {
-                return;
-            }
-
-            vscode.postMessage({
-                command: 'addToPrompts',
-                docId: selectedDocId
-            });
+            if (!selectedDocId) return;
+            vscode.postMessage({ command: 'addToPrompts', docId: selectedDocId });
         });
 
-        searchInputEl.addEventListener('input', () => {
-            vscode.postMessage({
-                command: 'searchDocs',
-                query: searchInputEl.value || ''
-            });
-        });
-
-        window.addEventListener('message', event => {
-            const message = event.data;
-
-            if (message?.command === 'searchResults') {
-                displayedDocs = Array.isArray(message.payload) ? message.payload : [];
-                render();
-            }
-
-            if (message?.command === 'docUpserted') {
-                const incoming = message.payload || {};
-                const docId = String(incoming.id || '').trim();
-                if (docId.length > 0) {
-                    const existingIndex = displayedDocs.findIndex(doc => String(doc.id) === docId);
-                    const nextDoc = {
-                        id: incoming.id,
-                        title: incoming.title || 'Untitled',
-                        last_updated: incoming.last_updated || ''
-                    };
-
-                    if (existingIndex >= 0) {
-                        displayedDocs[existingIndex] = {
-                            ...displayedDocs[existingIndex],
-                            ...nextDoc
-                        };
-                    } else {
-                        displayedDocs.push(nextDoc);
-                    }
-
-                    sortDisplayedDocs();
-                    render();
-                }
-            }
-
-            if (message?.command === 'docDetails') {
-                const payload = message.payload || {};
-                docContentEl.innerHTML = payload.contentHtml || escapeHtml(payload.content || 'No local markdown content found.');
-                renderMetadata(payload.metadata || null);
-            }
-
-            if (message?.command === 'selectDoc') {
-                const payload = message.payload || {};
-                const incomingId = String(payload.id || '').trim();
-                if (!incomingId) {
-                    return;
-                }
-
-                selectedDocId = incomingId;
-                addToPromptsBtnEl.disabled = !selectedDocId;
-                docContentEl.innerHTML = payload.contentHtml || escapeHtml(payload.content || 'No local markdown content found.');
-                renderMetadata(payload.metadata || null);
-                render();
-            }
-
-            if (message?.command === 'syncStatus') {
-                renderSyncStatus(message.payload || '');
-            }
-
-            if (message?.command === 'syncError') {
-                renderSyncError(message.payload || '');
-            }
-
-            if (message?.command === 'syncSuccess') {
-                renderSuccessMessage(message.payload || '');
-            }
-
-            if (message?.command === 'addToPromptsSuccess') {
-                renderSuccessMessage(`Added to prompts: ${message.payload}`);
-            }
-
-            if (message?.command === 'addToPromptsError') {
-                renderSyncError(`${message.payload}`);
-            }
-
-            if (message?.command === 'docDeleted') {
-                const deletedId = String(message.payload?.id || '').trim();
-                if (deletedId) {
-                    displayedDocs = displayedDocs.filter(doc => String(doc.id) !== deletedId);
-                    if (String(selectedDocId) === deletedId) {
-                        selectedDocId = null;
-                        selectedMetadata = null;
-                        setMetadataGeneratingState(false);
-                        addToPromptsBtnEl.disabled = true;
-                        generateMetadataBtnEl.disabled = true;
-                        metadataEditToggleBtnEl.disabled = true;
-                        summaryInputEl.value = '';
-                        keywordsInputEl.value = '';
-                        setMetadataEditMode(false);
-                        docContentEl.textContent = 'Select a document to view local content.';
-                        renderMetadata(null);
-                    }
-                    render();
-                }
-            }
-
-            if (message?.command === 'metadataUpdated') {
-                const payload = message.payload || {};
-                const updatedDocId = String(payload.id || '').trim();
-                const metadata = payload.metadata || null;
-                if (updatedDocId && String(selectedDocId) === updatedDocId) {
-                    renderMetadata(metadata);
-                }
-            }
-
-            if (message?.command === 'metadataGenerationState') {
-                const payload = message.payload || {};
-                const messageDocId = String(payload.docId || '').trim();
-                if (messageDocId && String(selectedDocId) === messageDocId) {
-                    setMetadataGeneratingState(Boolean(payload.isGenerating));
-                }
-            }
-        });
-
-        generateMetadataBtnEl.addEventListener('click', () => {
-            if (!selectedDocId || isMetadataGenerating) {
-                return;
-            }
-
-            setMetadataGeneratingState(true);
-
-            vscode.postMessage({
-                command: 'generateMetadata',
-                docId: selectedDocId
-            });
-        });
-
-        metadataEditToggleBtnEl.addEventListener('click', () => {
-            if (!selectedDocId || isMetadataGenerating) {
-                return;
-            }
-
-            if (!isMetadataEditMode) {
-                setMetadataEditMode(true);
-                summaryInputEl.focus();
-                return;
-            }
-
-            const keywords = String(keywordsInputEl.value || '')
-                .split(',')
-                .map(keyword => keyword.trim())
-                .filter(keyword => keyword.length > 0)
-                .join(', ');
-            vscode.postMessage({
-                command: 'saveMetadata',
-                docId: selectedDocId,
-                summary: summaryInputEl.value || '',
-                keywords
-            });
-            setMetadataEditMode(false);
-        });
-
-        // Refresh Popup Logic
         const openRefreshPopupBtn = document.getElementById('open-refresh-popup-btn');
         const refreshPopup = document.getElementById('refresh-popup');
         const closeRefreshPopupBtn = document.getElementById('close-refresh-popup-btn');
@@ -550,14 +139,11 @@
         if (openRefreshPopupBtn && refreshPopup) {
             openRefreshPopupBtn.addEventListener('click', () => {
                 refreshPopup.style.display = 'block';
-                if (syncSingleInput && syncSingleInput.offsetParent !== null) {
-                    syncSingleInput.focus();
-                }
+                if (syncSingleInput && syncSingleInput.offsetParent !== null) syncSingleInput.focus();
             });
             closeRefreshPopupBtn.addEventListener('click', () => {
                 refreshPopup.style.display = 'none';
             });
-            
             syncRadios.forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     if (e.target.value === 'all') {
@@ -570,49 +156,48 @@
                     }
                 });
             });
-
             submitRefreshBtn.addEventListener('click', () => {
                 let isAll = false;
                 const allRadio = document.querySelector('input[name="syncType"][value="all"]');
-                if (allRadio && allRadio.checked) {
-                    isAll = true;
-                }
-
+                if (allRadio && allRadio.checked) isAll = true;
                 if (isAll) {
-                    renderSyncError('');
-                    renderSuccessMessage('');
-                    renderSyncStatus('downloading from confluence/jira cloud ...');
+                    if(typeof renderSyncError === 'function') renderSyncError('');
+                    if(typeof renderSuccessMessage === 'function') renderSuccessMessage('');
+                    if(typeof renderSyncStatus === 'function') renderSyncStatus('downloading from confluence/jira cloud ...');
                     const syncAllInput = document.getElementById('sync-all-input');
-                    const allArg = syncAllInput ? syncAllInput.value.trim() : '';
-                    vscode.postMessage({ command: 'refreshDocs', isAll: true, arg: allArg });
+                    vscode.postMessage({ command: 'refreshDocs', isAll: true, arg: syncAllInput ? syncAllInput.value.trim() : '' });
                 } else {
                     const arg = syncSingleInput ? syncSingleInput.value.trim() : '';
-                    if (!arg) return;
-                    renderSyncError('');
-                    renderSuccessMessage('');
-                    renderSyncStatus('downloading from confluence/jira cloud ...');
+                    if (!arg) {
+                        if(typeof renderSyncError === 'function') renderSyncError('Please provide a valid URL or ID');
+                        return;
+                    }
+                    if(typeof renderSyncError === 'function') renderSyncError('');
+                    if(typeof renderSuccessMessage === 'function') renderSuccessMessage('');
+                    if(typeof renderSyncStatus === 'function') renderSyncStatus(`downloading from source ...`);
                     vscode.postMessage({ command: 'refreshDocs', isAll: false, arg });
                 }
                 refreshPopup.style.display = 'none';
             });
         }
-
-        renderSyncStatus(initialSyncStatus || '');
-        renderSuccessMessage(initialSyncSuccess || '');
-        renderSyncError(initialSyncError || '');
-        sortDisplayedDocs();
-        addToPromptsBtnEl.disabled = !selectedDocId;
-        generateMetadataBtnEl.disabled = !selectedDocId;
-        metadataEditToggleBtnEl.disabled = !selectedDocId;
-        setMetadataEditMode(false);
-        setMetadataGeneratingState(false);
-        applyMainTopHeight((containerEl.clientHeight || 0) * mainTopPaneRatio);
-        applyViewerTopHeight((viewerEl.clientHeight || 0) * topPaneRatio);
-        window.addEventListener('resize', () => {
-            applyMainTopHeight((containerEl.clientHeight || 0) * mainTopPaneRatio);
-            applyViewerTopHeight((viewerEl.clientHeight || 0) * topPaneRatio);
-        });
-        render();
+        
+    </script>
+    <script src="__DOC_STORE_JS_URI__"></script>
+    <script src="__METADATA_JS_URI__"></script>
+    <script>
+        // Init
+        const initialSyncStatus = __SYNC_STATUS__;
+        const initialSyncError = __SYNC_ERROR__;
+        const initialSyncSuccess = __SYNC_SUCCESS__;
+        if(typeof renderSyncStatus === 'function') renderSyncStatus(initialSyncStatus);
+        if(typeof renderSyncError === 'function') renderSyncError(initialSyncError);
+        if(typeof renderSuccessMessage === 'function') renderSuccessMessage(initialSyncSuccess);
+        
+        // Wait briefly for elements to be fully registered just in case, then render
+        setTimeout(() => {
+            if(typeof sortDisplayedDocs === 'function') sortDisplayedDocs();
+            if(typeof render === 'function') render();
+        }, 0);
     </script>
 </body>
 </html>

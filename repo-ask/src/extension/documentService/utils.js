@@ -173,8 +173,10 @@ function updateStoredMetadataById(docId, patch = {}) {
     limit: getKeywordConfig().DEFAULT_KEYWORD_LIMIT
   });
   const nextSummary = String(patch.summary || '').trim();
+  const nextType = patch.type !== undefined ? String(patch.type || '').trim() : metadata.type;
   const updatedMetadata = normalizeMetadataKeywordFields({
     ...metadata,
+    type: nextType,
     keywords: nextKeywords,
     summary: nextSummary
   });

@@ -87,6 +87,7 @@ async function processDocument(page) {
     last_updated: page.last_updated || new Date().toISOString().slice(0, 10),
     parent_confluence_topic: page.parent_confluence_topic || page.space || 'General',
     url: sourceUrl,
+    type: 'confluence',
     keywords: [],
     extended_keywords: [],
     summary: ''
@@ -141,6 +142,7 @@ async function processJiraIssue(issue) {
     last_updated: String(fields?.updated || new Date().toISOString().slice(0, 10)).slice(0, 10),
     parent_confluence_topic: `Jira ${projectKey}`,
     url: resolveSourceUrl(issue),
+    type: 'jira',
     keywords: [],
     extended_keywords: [],
     summary: ''

@@ -1,0 +1,19 @@
+{
+  "id": "bdd-cucumber-skill",
+  "title": "Behavior-Driven Development (BDD) Cucumber Skill",
+  "author": "repoask-system",
+  "last_updated": "2026-03-10T00:00:00.000Z",
+  "parent_confluence_topic": "Skills",
+  "keywords": [
+    "bdd",
+    "behavior-driven-development",
+    "given-when-then",
+    "gherkin",
+    "cucumber",
+    "testing",
+    "acceptance criteria",
+    "scenarios"
+  ],
+  "summary": "A guide on using Behavior-Driven Development (BDD) and Cucumber to define acceptance criteria with Given-When-Then scenarios and executable specifications.",
+  "type": "skill"
+}

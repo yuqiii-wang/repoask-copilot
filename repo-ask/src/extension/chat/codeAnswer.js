@@ -229,7 +229,7 @@ function selectMetadataForQuestion(question, metadataList, rankDocumentsByIdf, t
     };
 }
 
-async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptContext, response, deps, options = {}) {
+async function answerCodePromptQuestion(vscodeApi, prompt, workspacePromptContext, response, deps, options = {}) {
     const {
         truncate,
         tokenize,
@@ -248,17 +248,18 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
         return;
     }
 
+    const isOnCode = options.scenario === 'code';
     const contextText = String(workspacePromptContext || '').trim();
 
     let instruction = [
-        'You are RepoAsk Doc Agent. Your goal is to help the user answer general questions from the document store.',
+        'You are RepoAsk Code Agent. Your goal is to help the user with local code review and changes.',
         'Wait for tool results before explaining the final answer.',
-        '- You MUST rely on the `local-store` via tools to find the answer.',
-        '- Use `repoask_rank` tool with limit 10 to select the top 10 docs.',
-        '- Read content with `repoask_read_content` and base your answer solely on the retrieved text.',
-        '- You MUST output a summary of the checked documents in relation to the question, even if ALL docs are irrelevant.',
+        '- DO use the `.github/prompts/*.md` code guidelines dynamically via repoask_read_repo_prompts.',
+        '- Use `repoask_new_code_check` to review branch changes vs main/master.',
+        '- If asked to update or rewrite code, attempt to do so using available tools. If not permissioned or you lack the tool, output "not permissioned".',
+        '- If there is no need to change code based on the question, answer the question with the provided code and prompt context.',
         '',
-        'Workspace guidelines: (none)',
+        contextText ? `Workspace guidelines:\n${contextText}` : 'Workspace guidelines: (none)',
         `User question: ${prompt}`
     ].join('\n\n');
 
@@ -269,8 +270,9 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
     const MAX_ITERATIONS = 7;
     let iterations = 0;
     
+    // Tools logic
     let toolsToUse = (vscodeApi.lm.tools || []).filter(t => t.name.startsWith('repoask_'));
-    toolsToUse = toolsToUse.filter(t => t.name !== 'repoask_new_code_check' && t.name !== 'repoask_read_repo_prompts');
+    toolsToUse = toolsToUse.filter(t => t.name === 'repoask_new_code_check' || t.name === 'repoask_read_repo_prompts');
 
     const requestOptions = {
         tools: toolsToUse
@@ -343,5 +345,5 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
 }
 
 module.exports = {
-    answerGeneralPromptQuestion
+    answerCodePromptQuestion
 };

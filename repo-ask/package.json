@@ -12,13 +12,10 @@
   ],
   "activationEvents": [
     "onView:repo-ask-documents",
-    "onCommand:repo-ask.refresh",
-    "onCommand:repo-ask.rank",
-    "onCommand:repo-ask.check",
-    "onCommand:repo-ask.checkAllDocs",
-    "onChatParticipant:repoask",
+    "onChatParticipant:repoaskDoc",
+    "onChatParticipant:repoaskCode",
     "onLanguageModelTool:repoask_rank",
-    "onLanguageModelTool:repoask_check",
+    "onLanguageModelTool:repoask_doc_check",
     "onLanguageModelTool:repoask_read_metadata",
     "onLanguageModelTool:repoask_read_content",
     "onLanguageModelTool:repoask_new_code_check",
@@ -28,9 +25,14 @@
   "contributes": {
     "chatParticipants": [
       {
-        "id": "repoask",
-        "name": "repoask",
-        "description": "RepoAsk chat for checking, ranking, annotating, and refreshing (sync/download) Confluence pages and Jira issues"
+        "id": "repoaskDoc",
+        "name": "repoaskDoc",
+        "description": "RepoAsk chat for general questions from the document store"
+      },
+      {
+        "id": "repoaskCode",
+        "name": "repoaskCode",
+        "description": "RepoAsk chat for local code review and changes"
       }
     ],
     "languageModelTools": [
@@ -66,14 +68,14 @@
         }
       },
       {
-        "name": "repoask_check",
+        "name": "repoask_doc_check",
         "tags": [
           "repoask",
           "relevance",
           "qa"
         ],
-        "toolReferenceName": "repoaskCheck",
-        "displayName": "RepoAsk Check",
+        "toolReferenceName": "repoaskDocCheck",
+        "displayName": "RepoAsk Doc Check",
         "modelDescription": "Find relevant local documents for a question using metadata relevance and include local content references.",
         "userDescription": "Check local docs for relevant references.",
         "canBeReferencedInPrompt": true,
@@ -185,24 +187,6 @@
           "type": "object",
           "properties": {}
         }
-      }
-    ],
-    "commands": [
-      {
-        "command": "repo-ask.check",
-        "title": "RepoAsk: Check"
-      },
-      {
-        "command": "repo-ask.checkAllDocs",
-        "title": "RepoAsk: Check ALL Docs"
-      },
-      {
-        "command": "repo-ask.rank",
-        "title": "RepoAsk: Rank"
-      },
-      {
-        "command": "repo-ask.refresh",
-        "title": "RepoAsk: Refresh"
       }
     ],
     "viewsContainers": {

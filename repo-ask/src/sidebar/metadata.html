@@ -1,0 +1,24 @@
+<section class="metadata-pane">
+                <div class="viewer-header">
+                    <h2 class="viewer-title">Metadata</h2>
+                    <div class="metadata-actions">
+                        <button id="generate-metadata-btn" class="action-btn" type="button" disabled>AI Gen</button>
+                        <button id="cancel-metadata-btn" class="action-btn" type="button" style="display: none;">Cancel</button>
+                        <button id="metadata-edit-toggle-btn" class="action-btn" type="button" disabled>Edit</button>
+                    </div>
+                </div>
+                <label class="metadata-label" for="type-input">Type</label>
+                <select id="type-input" class="metadata-select" disabled>
+                    <option value="confluence">Confluence</option>
+                    <option value="jira">Jira</option>
+                    <option value="skill">Skill</option>
+                    <option value="custom">Custom</option>
+                </select>
+                <label class="metadata-label" for="summary-input">Summary</label>
+                <textarea id="summary-input" class="metadata-textarea" rows="3" placeholder="Summary is empty. Generate or edit it."></textarea>
+                <label class="metadata-label" for="keywords-input">Keywords (comma separated)</label>
+                <textarea id="keywords-input" class="metadata-textarea metadata-textarea-keywords" rows="2" placeholder="keyword-a, keyword-b"></textarea>
+                <ul id="metadata-list" class="metadata-list">
+                    <li class="metadata-item">title: -</li>
+                </ul>
+            </section>
