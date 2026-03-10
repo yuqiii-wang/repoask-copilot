@@ -21,3 +21,4 @@ data
 local-store
 nohup.out
 .github/prompts
+dummy_data.json

@@ -71,7 +71,7 @@ async function selectToolAndArg(vscode, prompt, options = {}) {
             const model = models?.[0];
             if (model) {
                 const instruction = [
-                    'You are a helper that chooses which local repoasktool to run based on a user query.',
+                    'You are a helper that chooses which local repoask tool to run based on a user query.',
                     'Return only valid JSON with shape: {"tool":"refresh|annotate|rank|check|none","arg":"..."}.',
                     'Choose `refresh` when the user asks to refresh, sync, download, pull, fetch, import, or update docs/issues from Confluence or Jira.',
                     'For `refresh`, extract a Jira issue key/id/link or a Confluence page id/title/link into `arg` when present.',
@@ -152,6 +152,27 @@ async function parseRefreshArg(vscode, sourceInput, options = {}) {
     }
 
     const jiraRegexes = getJiraExtractionRegexes(vscode);
+
+    const urlMatch = raw.match(/https?:\/\/[^\s)]+/i);
+    if (urlMatch && urlMatch[0]) {
+        const urlStr = urlMatch[0];
+        if (urlStr.match(/\/browse\/[A-Za-z0-9\-]+/i)) {
+            return { found: true, arg: urlStr, source: 'regex-jira' };
+        }
+        for (const regex of jiraRegexes) {
+            if (urlStr.match(regex)) {
+                return { found: true, arg: urlStr, source: 'regex-jira' };
+            }
+        }
+        return { found: true, arg: urlStr, source: 'regex-url' }; // Default to confluence for now
+    }
+
+    // Pure number > 6 digits is a Confluence ID
+    const pureNumMatch = raw.match(/^\d{7,}$/);
+    if (pureNumMatch) {
+        return { found: true, arg: raw, source: 'regex-id' };
+    }
+
     for (const regex of jiraRegexes) {
         const jiraMatch = raw.match(regex);
         if (jiraMatch && jiraMatch[0]) {
@@ -159,12 +180,7 @@ async function parseRefreshArg(vscode, sourceInput, options = {}) {
         }
     }
 
-    const urlMatch = raw.match(/https?:\/\/[^\s)]+/i);
-    if (urlMatch && urlMatch[0]) {
-        return { found: true, arg: urlMatch[0], source: 'regex-url' };
-    }
-
-    const pageIdMatch = raw.match(/(?:pageid=|\b)(\d{1,8})(?:\b|$)/i);
+    const pageIdMatch = raw.match(/(?:pageid=)(\d+)/i) || raw.match(/\b(\d{1,8})\b/i);
     if (pageIdMatch && pageIdMatch[1]) {
         return { found: true, arg: pageIdMatch[1], source: 'regex-id' };
     }

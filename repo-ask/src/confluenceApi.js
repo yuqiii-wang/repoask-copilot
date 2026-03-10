@@ -41,7 +41,7 @@ function extractConfluencePageIdFromArg(pageArg) {
     if (!raw) {
         return null;
     }
-    const directMatch = raw.match(/(?:[?&]pageId=|\/pages\/viewpage\.action\?pageId=)(\d+)/i);
+    const directMatch = raw.match(/(?:[?&]pageId=|\/pages\/|\/viewpage\/|\.action\/|\?pageId=)(\d+)/i);
     if (directMatch && directMatch[1]) {
         return directMatch[1];
     }
@@ -61,13 +61,16 @@ function buildResolveCandidates(pageArg) {
 }
 
 async function fetchConfluencePage(pageArg) {
-    const { url: base, securityToken } = getConfluenceConfig();
+    let { url: base, securityToken } = getConfluenceConfig();
+    if (String(pageArg).startsWith('http')) {
+        base = new URL(pageArg).origin;
+    }
     const headers = getHeaders(securityToken);
     buildResolveCandidates(pageArg);
 
     let lastError = null;
     for (const candidate of buildResolveCandidates(pageArg)) {
-        const resolveUrl = `${base}/rest/api/content/${encodeURIComponent(candidate)}`;
+        const resolveUrl = `${base}/confluence/rest/api/content/${encodeURIComponent(candidate)}`;
 
         try {
             const response = await axios.get(resolveUrl, { 
@@ -82,7 +85,7 @@ async function fetchConfluencePage(pageArg) {
         }
         
         try {
-            const response = await axios.get(`${base}/rest/api/content/${encodeURIComponent(pageArg)}?expand=body.storage`, { 
+            const response = await axios.get(`${base}/confluence/rest/api/content/${encodeURIComponent(pageArg)}?expand=body.storage`, { 
                 timeout: REQUEST_TIMEOUT_MS, 
                 headers,
                 maxContentLength: Infinity,
@@ -114,9 +117,12 @@ module.exports = {
     fetchConfluencePageChildren
 };
 async function fetchConfluencePageChildren(pageId) {
-    const { url: base, securityToken } = getConfluenceConfig();
+    let { url: base, securityToken } = getConfluenceConfig();
+    if (String(pageId).startsWith('http')) {
+        base = new URL(pageId).origin;
+    }
     const headers = getHeaders(securityToken);
-    const response = await axios.get(`${base}/rest/api/content/${encodeURIComponent(pageId)}/child/page?expand=body.storage`, {
+    const response = await axios.get(`${base}/confluence/rest/api/content/${encodeURIComponent(pageId)}/child/page?expand=body.storage`, {
         timeout: REQUEST_TIMEOUT_MS,
         headers,
         maxContentLength: Infinity,

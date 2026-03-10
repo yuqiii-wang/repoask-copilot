@@ -37,8 +37,19 @@ function getHeaders(securityToken) {
 }
 
 async function fetchJiraIssue(issueArg) {
-    const { url: base, securityToken } = getJiraConfig();
-    const encodedArg = encodeURIComponent(issueArg);
+    let { url: base, securityToken } = getJiraConfig();
+    let queryArg = issueArg;
+    
+    if (String(issueArg).startsWith('http')) {
+        const parsed = new URL(issueArg);
+        base = parsed.origin;
+        const match = parsed.pathname.match(/\/browse\/([A-Za-z0-9\-]+)/i);
+        if (match) {
+            queryArg = match[1];
+        }
+    }
+
+    const encodedArg = encodeURIComponent(queryArg);
     const resolveUrl = `${base}/rest/api/2/issue/resolve?arg=${encodedArg}`;
     const headers = getHeaders(securityToken);
 
@@ -51,7 +62,7 @@ async function fetchJiraIssue(issueArg) {
         });
         return response.data;
     } catch {
-        const response = await axios.get(`${base}/rest/api/2/issue/${encodeURIComponent(issueArg)}`, { 
+        const response = await axios.get(`${base}/rest/api/2/issue/${encodeURIComponent(queryArg)}`, { 
             timeout: REQUEST_TIMEOUT_MS, 
             headers,
             maxContentLength: Infinity,
