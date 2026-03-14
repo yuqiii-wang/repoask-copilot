@@ -1,11 +1,8 @@
 const registerRankTool = require('./rankTool');
 const registerCheckTool = require('./checkTool');
-const registerReadMetadataTool = require('./readMetadataTool');
-const registerReadContentTool = require('./readContentTool');
-const registerNewCodeCheckTool = require('./newCodeCheckTool');
+const registerCodeCheckTool = require('./codeCheckTool');
 const registerReadRepoPromptsTool = require('./readRepoPromptsTool');
 const registerCodeSplitterTool = require('./codeSplitterTool');
-const registerOptimizeQueryTool = require('./optimizeQueryTool');
 
 function createLanguageModelTools(deps) {
     const { vscode } = deps;
@@ -17,14 +14,11 @@ function createLanguageModelTools(deps) {
 
         const rankTool = registerRankTool(deps);
         const checkTool = registerCheckTool(deps);
-        const readMetadataTool = registerReadMetadataTool(deps);
-        const readContentTool = registerReadContentTool(deps);
-        const newCodeCheckTool = registerNewCodeCheckTool(deps);
+        const codeCheckTool = registerCodeCheckTool(deps);
         const readRepoPromptsTool = registerReadRepoPromptsTool(deps);
         const codeSplitterTool = registerCodeSplitterTool(deps);
-        const optimizeQueryTool = registerOptimizeQueryTool(deps);
 
-        return [rankTool, checkTool, readMetadataTool, readContentTool, newCodeCheckTool, readRepoPromptsTool, codeSplitterTool, optimizeQueryTool];
+        return [rankTool, checkTool, codeCheckTool, readRepoPromptsTool, codeSplitterTool];
     }
 
     return {

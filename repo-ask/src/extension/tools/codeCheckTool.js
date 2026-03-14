@@ -1,8 +1,8 @@
 const { toToolResult } = require('./utils');
 
-module.exports = function registerNewCodeCheckTool(deps) {
+module.exports = function registerCodeCheckTool(deps) {
     const { vscode } = deps;
-    return vscode.lm.registerTool('repoask_new_code_check', {
+    return vscode.lm.registerTool('repoask_code_check', {
             prepareInvocation() {
                 return {
                     invocationMessage: 'Generating new code check vs main/master branch...',

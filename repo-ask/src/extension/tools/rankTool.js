@@ -7,14 +7,47 @@ module.exports = function registerRankTool(deps) {
                 const query = String(options?.input?.query || '').trim();
                 const rawLimit = Number(options?.input?.limit);
                 const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 50) : 5;
+                const type = options?.input?.type;
+                const tags = options?.input?.tags;
 
                 if (!query) {
                     return toToolResult('Missing required `query` input for rank tool.', { results: [] });
                 }
 
-                const ranked = documentService.rankLocalDocuments(query, limit);
+                // Extract and format keywords for ranking
+                const keywords = documentService.extractKeywords(query);
+                const formattedKeywords = documentService.formatKeywordsForRanking(keywords);
+                const formattedQuery = formattedKeywords.join(' ');
+
+                const ranked = documentService.rankLocalDocuments(formattedQuery || query, limit);
                 if (!ranked || ranked.length === 0) {
                     return toToolResult('No matching local documents found for the query. Please search the document store in the sidebar to find the document ID, then use that ID in your query to retrieve the specific document.', { results: [] });
+                }
+                
+                // Apply strict AND logic filtering for type and tags
+                let filteredResults = ranked;
+                
+                if (type) {
+                    const targetType = String(type).toLowerCase();
+                    filteredResults = filteredResults.filter(item => {
+                        const itemType = String(item.type || '').toLowerCase();
+                        return itemType === targetType;
+                    });
+                }
+                
+                if (tags) {
+                    const targetTags = Array.isArray(tags) ? tags : [tags];
+                    const lowerTargetTags = targetTags.map(tag => String(tag).toLowerCase());
+                    
+                    filteredResults = filteredResults.filter(item => {
+                        const itemTags = Array.isArray(item.tags) ? item.tags.map(tag => String(tag).toLowerCase()) : [];
+                        // Ensure all target tags are present in the item's tags
+                        return lowerTargetTags.every(targetTag => itemTags.includes(targetTag));
+                    });
+                }
+                
+                if (filteredResults.length === 0) {
+                    return toToolResult('No matching local documents found after applying type and tag filters.', { results: [] });
                 }
 
                 const repAskConfig = vscode.workspace.getConfiguration('repoAsk');
@@ -34,7 +67,7 @@ module.exports = function registerRankTool(deps) {
                     return toToolResult('Jira URL not configured. Please set repoAsk.jira.url in settings.', { results: [] });
                 }
 
-                const results = ranked.map(item => {
+                const results = filteredResults.map(item => {
                     let fullUrl = item.url || '';
                     if (fullUrl && !fullUrl.startsWith('http')) {
                         const isJira = item.parent_confluence_topic && String(item.parent_confluence_topic).startsWith('Jira');
@@ -55,7 +88,8 @@ module.exports = function registerRankTool(deps) {
                     };
                 });
                 const lines = results.map((item, index) => `${index + 1}. ${item.title} (score ${item.score})`);
-                return toToolResult(`Top ranked RepoAsk documents:\n${lines.join('\n')}`, { results });
+                const internalThinking = `\n\n> Internal ranking results:\n> ${lines.join('\n> ')}`;
+                return toToolResult(`Top ranked RepoAsk documents:\n${lines.join('\n')}${internalThinking}`, { results });
             }
         });
 };

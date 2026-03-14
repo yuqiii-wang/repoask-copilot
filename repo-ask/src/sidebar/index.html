@@ -175,17 +175,22 @@
                 const resetRadio = document.querySelector('input[name="syncType"][value="reset"]');
                 if (allRadio && allRadio.checked) isAll = true;
                 if (resetRadio && resetRadio.checked) isReset = true;
+                
+                // Check if full index refresh is requested
+                const fullIndexRefreshCheckbox = document.getElementById('full-index-refresh');
+                const fullIndexRefresh = fullIndexRefreshCheckbox ? fullIndexRefreshCheckbox.checked : false;
+                
                 if (isReset) {
                     if(typeof renderSyncError === 'function') renderSyncError('');
                     if(typeof renderSuccessMessage === 'function') renderSuccessMessage('');
                     if(typeof renderSyncStatus === 'function') renderSyncStatus('resetting to default documents...');
-                    vscode.postMessage({ command: 'resetToDefaultDocs' });
+                    vscode.postMessage({ command: 'resetToDefaultDocs', fullIndexRefresh });
                 } else if (isAll) {
                     if(typeof renderSyncError === 'function') renderSyncError('');
                     if(typeof renderSuccessMessage === 'function') renderSuccessMessage('');
                     if(typeof renderSyncStatus === 'function') renderSyncStatus('downloading from confluence/jira cloud ...');
                     const syncAllInput = document.getElementById('sync-all-input');
-                    vscode.postMessage({ command: 'refreshDocs', isAll: true, arg: syncAllInput ? syncAllInput.value.trim() : '' });
+                    vscode.postMessage({ command: 'refreshDocs', isAll: true, arg: syncAllInput ? syncAllInput.value.trim() : '', fullIndexRefresh });
                 } else {
                     const arg = syncSingleInput ? syncSingleInput.value.trim() : '';
                     if (!arg) {
@@ -198,7 +203,7 @@
                     if(typeof renderSyncError === 'function') renderSyncError('');
                     if(typeof renderSuccessMessage === 'function') renderSuccessMessage('');
                     if(typeof renderSyncStatus === 'function') renderSyncStatus(`downloading from source ...`);
-                    vscode.postMessage({ command: 'refreshDocs', isAll: false, arg });
+                    vscode.postMessage({ command: 'refreshDocs', isAll: false, arg, fullIndexRefresh });
                 }
                 refreshPopup.style.display = 'none';
             });

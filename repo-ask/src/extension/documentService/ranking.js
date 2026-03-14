@@ -323,13 +323,42 @@ function optimizeQuery(query) {
   };
 }
 
+function extractPlatformSpecificTerms(query) {
+  // Extract platform-specific terms like "jira" and "confluence"
+  const platformTerms = [];
+  if (query.toLowerCase().includes('jira')) {
+      platformTerms.push('jira');
+  }
+  if (query.toLowerCase().includes('confluence')) {
+      platformTerms.push('confluence');
+  }
+  return platformTerms;
+}
+
 function extractKeywords(query) {
   const words = query.toLowerCase().split(/\s+/);
   const stopWords = new Set(['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by']);
   
-  return words
-    .filter(word => !stopWords.has(word) && word.length > 2)
-    .filter((value, index, self) => self.indexOf(value) === index);
+  // Extract platform-specific terms and other keywords
+  const keywords = words
+      .filter(word => !stopWords.has(word) && word.length > 2)
+      .concat(extractPlatformSpecificTerms(query));
+  
+  // Remove duplicates
+  return [...new Set(keywords)];
+}
+
+function formatKeywordsForRanking(keywords) {
+  // Format keywords for optimal ranking
+  // 1. Remove duplicates
+  // 2. Sort by length (longer keywords first for better matching)
+  // 3. Ensure proper casing
+  return [...new Set(keywords)]
+      .sort((a, b) => b.length - a.length)
+      .map(keyword => {
+          // Capitalize first letter for proper formatting
+          return keyword.charAt(0).toUpperCase() + keyword.slice(1);
+      });
 }
 
 function calculateConfidence(documents, query) {
@@ -356,6 +385,8 @@ function calculateConfidence(documents, query) {
   return {
     rankLocalDocuments,
     checkLocalDocumentsAgentic,
-    optimizeQueryAndRank
+    optimizeQueryAndRank,
+    extractKeywords,
+    formatKeywordsForRanking
   };
 };

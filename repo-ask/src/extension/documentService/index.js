@@ -76,6 +76,8 @@ function createDocumentService(deps) {
     rankLocalDocuments: _ranking.rankLocalDocuments,
     checkLocalDocumentsAgentic: _ranking.checkLocalDocumentsAgentic,
     optimizeQueryAndRank: _ranking.optimizeQueryAndRank,
+    extractKeywords: _ranking.extractKeywords,
+    formatKeywordsForRanking: _ranking.formatKeywordsForRanking,
     refreshDocument: _sync.refreshDocument,
     refreshConfluenceHierarchy: _sync.refreshConfluenceHierarchy,
     refreshAllDocuments: _sync.refreshAllDocuments,

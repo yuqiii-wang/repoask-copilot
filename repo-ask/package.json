@@ -16,12 +16,9 @@
     "onChatParticipant:repoaskCode",
     "onLanguageModelTool:repoask_rank",
     "onLanguageModelTool:repoask_doc_check",
-    "onLanguageModelTool:repoask_read_metadata",
-    "onLanguageModelTool:repoask_read_content",
-    "onLanguageModelTool:repoask_new_code_check",
+    "onLanguageModelTool:repoask_code_check",
     "onLanguageModelTool:repoask_read_repo_prompts",
-    "onLanguageModelTool:repoask_code_splitter",
-    "onLanguageModelTool:repoask_optimize_query"
+    "onLanguageModelTool:repoask_code_splitter"
   ],
   "main": "index.js",
   "contributes": {
@@ -84,76 +81,36 @@
         "icon": "$(search)",
         "inputSchema": {
           "type": "object",
-          "required": [
-            "query"
-          ],
           "properties": {
             "query": {
               "type": "string",
-              "description": "User question to evaluate against local metadata and content."
+              "description": "User question to evaluate against local metadata and content. Required for search mode."
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["search", "metadata", "content", "all"],
+              "default": "search",
+              "description": "Operation mode: search (default), metadata (read metadata), content (read content), all (read both)."
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional list of document ids to read. Leave empty to read all."
             },
             "limit": {
               "type": "number",
-              "description": "Optional max number of references to return.",
+              "description": "Optional max number of references to return for search mode.",
               "default": 3
             }
           }
         }
       },
+
+
       {
-        "name": "repoask_read_metadata",
-        "tags": [
-          "repoask",
-          "metadata",
-          "read"
-        ],
-        "toolReferenceName": "repoaskReadMetadata",
-        "displayName": "RepoAsk Read Metadata",
-        "modelDescription": "Read the metadata of local documents.",
-        "userDescription": "Read the metadata of local documents.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(bracket)",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "ids": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Optional list of document ids to read metadata for. Leave empty to read all metadata."
-            }
-          }
-        }
-      },
-      {
-        "name": "repoask_read_content",
-        "tags": [
-          "repoask",
-          "content",
-          "read"
-        ],
-        "toolReferenceName": "repoaskReadContent",
-        "displayName": "RepoAsk Read Content",
-        "modelDescription": "Read the full markdown content of local documents.",
-        "userDescription": "Read the content of local documents.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(file)",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "ids": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Optional list of document ids to read content for. Leave empty to read all."
-            }
-          }
-        }
-      },
-      {
-        "name": "repoask_new_code_check",
+        "name": "repoask_code_check",
         "tags": [
           "repoask",
           "code",
@@ -161,8 +118,8 @@
           "review",
           "test"
         ],
-        "toolReferenceName": "repoaskNewCodeCheck",
-        "displayName": "RepoAsk New Code Check",
+        "toolReferenceName": "repoaskCodeCheck",
+        "displayName": "RepoAsk Code Check",
         "modelDescription": "Get git diff of the current branch compared to main/master to do code review, generate tests, and verify against guides.",
         "userDescription": "Compare current branch with main/master via git diff.",
         "canBeReferencedInPrompt": true,
@@ -221,32 +178,6 @@
                 "type": "string"
               },
               "description": "Proposed classes or functions to search for"
-            }
-          }
-        }
-      },
-      {
-        "name": "repoask_optimize_query",
-        "tags": [
-          "repoask",
-          "query",
-          "optimize"
-        ],
-        "toolReferenceName": "repoaskOptimizeQuery",
-        "displayName": "RepoAsk Optimize Query",
-        "modelDescription": "Analyze and refine user queries to improve clarity and relevance, extract keywords, match against existing tags, and identify relevant documents.",
-        "userDescription": "Optimize query for better document matching.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(search-refresh)",
-        "inputSchema": {
-          "type": "object",
-          "required": [
-            "query"
-          ],
-          "properties": {
-            "query": {
-              "type": "string",
-              "description": "User query to optimize."
             }
           }
         }
@@ -338,7 +269,7 @@
           "default": {
             "key": "ALM",
             "isDefault": true,
-            "url": "http://localhost:8002",
+            "url": "http://localhost:8092",
             "securityToken": "",
             "regex": [
               "PROJECT-\\d+",

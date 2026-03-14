@@ -1,8 +1,8 @@
 function generate_ngrams(tokens, n_min = 1, n_max = 5) {
-    const ngrams = [];
+    const ngrams = new Set();
 
     if (n_min <= 1) {
-        ngrams.push(...tokens);
+        tokens.forEach(token => ngrams.add(token));
     }
 
     const start_n = Math.max(2, n_min);
@@ -11,14 +11,13 @@ function generate_ngrams(tokens, n_min = 1, n_max = 5) {
         if (tokens.length < n) {
             continue;
         }
-        const phrases = [];
         for (let i = 0; i <= tokens.length - n; i++) {
-            phrases.push(tokens.slice(i, i + n).join(' '));
+            const phrase = tokens.slice(i, i + n).join(' ');
+            ngrams.add(phrase);
         }
-        ngrams.push(...phrases);
     }
 
-    return ngrams;
+    return Array.from(ngrams);
 }
 
 module.exports = {
