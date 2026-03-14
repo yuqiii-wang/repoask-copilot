@@ -74,26 +74,27 @@ Quick validation checklist before merging any agent-driven change:
 - Package the extension with `npx vsce package` to confirm manifest and contribution validity.
 
 Current code map (verified):
-- Extension runtime and commands: `repo-ask/src/extension.js`
+- Extension runtime: `repo-ask/src/extension.js`
+- Command definitions: `repo-ask/src/extension/commands/*` (includes `refreshCommand.js`, `deleteCommand.js`, `metadataCommands.js`, etc.)
 - Document orchestration (refresh/annotate/rank): `repo-ask/src/extension/documentService/*`
 - Tools and LLM routing: `repo-ask/src/extension/tools/*` (includes `lmTools.js`, `llm.js`, `rankTool.js`, etc.)
-- Command registrations / definitions: currently in `repo-ask/src/extension.js` (no separate `commands/` directory).
 - Chat handlers & Prompt Context: `repo-ask/src/extension/chat/generalAnswer.js`, `repo-ask/src/extension/chat/codeAnswer.js`, `repo-ask/src/extension/promptContext.js`
 - Confluence/Jira API adapters & MCP: `repo-ask/src/mcp/confluenceApi.js`, `repo-ask/src/mcp/jiraApi.js`, `repo-ask/src/mcp/apiMap.js`
 - Local storage contract (doc directory with `content.md` + `metadata.json`, Indices in `local-store-index/`, legacy fallback, default docs initialized from `src/default_docs/`): `repo-ask/src/storage.js`
 - Ranking engines: `repo-ask/src/docIndex/bm25.js`, `repo-ask/src/docIndex/relevance.js`
 - Text conversion + keyword/summary fallback: `repo-ask/src/textProcessing.js`
 - Tokenization helpers: `repo-ask/src/tokenization/*` (extractors, ngrams, structural, patterns)
-- Sidebar controller + UI: `repo-ask/src/extension/sidebarController.js`, `repo-ask/src/sidebar/*` (index.html, styles.css, docStore.html/js, metadata.html/js, refreshPopup.html)
-- Dummy servers: `dummy-servers/confluence_server.py`, `dummy-servers/jira_server.py`, `dummy-servers/generate_dummy_data.py`
+- Sidebar controller + UI: `repo-ask/src/extension/sidebarController.js`, `repo-ask/src/sidebar/*` (index.html, styles.css, docStore.html/js, metadata.html/js, refreshPopup.html, feedback.html/js)
+- Dummy servers: `dummy-servers/confluence_server.py`, `dummy-servers/jira_server.py`, `dummy-servers/generate_dummy_data.py`, `dummy-servers/template_utils.py`
 
 Current behavior snapshot:
 - Chat participant supports direct `refresh` and `annotate`; refresh-like prompts are auto-detected, and other prompts go through general prompt-context Q&A.
 - `handleRefreshFromSource` parses args via `parseRefreshArg`, supports Jira issue extraction, resolves Confluence args before refresh, and provides safe fallback UI.
 - `refresh` command refreshes one item (Confluence/Jira arg path) or all Confluence docs when input is empty.
 - `annotate` command updates local metadata only (single doc or all docs).
-- Sidebar search uses `rankLocalDocuments` (BM25 first, IDF fallback); selecting a doc updates embedded preview + metadata panel; metadata can be generated/saved; delete removes local doc-directory and legacy files; Add to Prompts writes `.github/prompts/*.prompt.md`.
+- Sidebar search uses `rankLocalDocuments` (BM25 first, IDF fallback); selecting a doc updates embedded preview + metadata panel; metadata can be generated/saved; delete removes local doc-directory and legacy files; Add to Prompts writes `.github/prompts/*.prompt.md`; feedback logging is available.
 - General prompt Q&A ranks metadata for context selection and streams explicit "Thinking" progress messages before returning model output.
+- Command definitions are now organized in `repo-ask/src/extension/commands/` directory for better maintainability.
 
 Risks and notes:
 - LLM responses can be noisy: always use `extractJsonObject` and validate outputs before executing commands.

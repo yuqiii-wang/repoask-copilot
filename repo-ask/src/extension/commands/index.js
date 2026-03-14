@@ -5,6 +5,7 @@ const createSearchCommand = require('./searchCommand');
 const createPromptsCommand = require('./promptsCommand');
 const createDeleteCommand = require('./deleteCommand');
 const createResetCommand = require('./resetCommand');
+const createShowLogActionButtonCommand = require('./showLogActionButton');
 
 module.exports = {
     createRefreshCommand,
@@ -13,6 +14,7 @@ module.exports = {
     createSearchCommand,
     createPromptsCommand,
     createDeleteCommand,
-    createResetCommand
+    createResetCommand,
+    createShowLogActionButtonCommand
 };
 

@@ -29,7 +29,7 @@ const { parseRefreshArg } = require('./extension/tools/llm');
 const { createDocumentService } = require('./extension/documentService');
 const { createSidebarController } = require('./extension/sidebarController');
 const { createLanguageModelTools } = require('./extension/tools/lmTools');
-const { createRefreshCommand } = require('./extension/commands');
+const { createRefreshCommand, createShowLogActionButtonCommand } = require('./extension/commands');
 const { loadWorkspacePromptContext } = require('./extension/promptContext');
 const { answerGeneralPromptQuestion } = require('./extension/chat/generalAnswer');
 const { answerCodePromptQuestion } = require('./extension/chat/codeAnswer');
@@ -170,40 +170,17 @@ function setupExtension(context) {
         repoAskCodeParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
     }
 
-    // Register create feedback logs page command
-    const createFeedbackLogsPageCommandDisposable = vscode.commands.registerCommand('repo-ask.createFeedbackLogsPage', async () => {
-        try {
-            const title = 'Feedback Logs';
-            const content = 'Source Query,Conversation Summary,Confluence Page/Jira Link,DateTime,Tags\n';
-            
-            const response = await createConfluencePage(title, content);
-            vscode.window.showInformationMessage(`Feedback Logs page created successfully! Page ID: ${response.id}`);
-        } catch (error) {
-            console.error('Error creating Feedback Logs page:', error);
-            vscode.window.showErrorMessage(`Failed to create Feedback Logs page: ${error.message}`);
-        }
-    });
-
     // Register show log action button command
-    const showLogActionButtonCommandDisposable = vscode.commands.registerCommand('repo-ask.showLogActionButton', async (firstUserQuery, firstRankedDocUrl, fullAiResponse) => {
-        // Store the logged prompt in globalState to archive the chat
-        if (firstUserQuery) {
-            const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
-            if (!loggedPrompts.includes(firstUserQuery)) {
-                loggedPrompts.push(firstUserQuery);
-                await context.globalState.update('repoAsk.loggedPrompts', loggedPrompts);
-            }
-        }
-        
-        // Show the feedback form with the first user query, first ranked doc URL, and full AI response.
-        sidebar.showLogActionButton(firstUserQuery, firstRankedDocUrl, fullAiResponse);
+    const showLogActionButtonCommandDisposable = createShowLogActionButtonCommand({
+        vscode,
+        context,
+        sidebar
     });
 
     const baseSubscriptions = [
         webviewProviderDisposable,
         ...lmToolDisposables,
         refreshCommandDisposable,
-        createFeedbackLogsPageCommandDisposable,
         showLogActionButtonCommandDisposable
     ];
 

@@ -207,7 +207,9 @@
         "icon": "$(symbol-class)",
         "inputSchema": {
           "type": "object",
-          "required": ["query"],
+          "required": [
+            "query"
+          ],
           "properties": {
             "query": {
               "type": "string",
@@ -215,7 +217,9 @@
             },
             "classesOrFuncs": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Proposed classes or functions to search for"
             }
           }
@@ -271,10 +275,6 @@
       {
         "command": "repo-ask.refresh",
         "title": "RepoAsk: Refresh"
-      },
-      {
-        "command": "repo-ask.createFeedbackLogsPage",
-        "title": "RepoAsk: Create Feedback Logs Page"
       },
       {
         "command": "repo-ask.showLogActionButton",
