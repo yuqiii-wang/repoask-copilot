@@ -267,6 +267,20 @@
         }
       ]
     },
+    "commands": [
+      {
+        "command": "repo-ask.refresh",
+        "title": "RepoAsk: Refresh"
+      },
+      {
+        "command": "repo-ask.createFeedbackLogsPage",
+        "title": "RepoAsk: Create Feedback Logs Page"
+      },
+      {
+        "command": "repo-ask.showLogActionButton",
+        "title": "RepoAsk: Show Log Action Button"
+      }
+    ],
     "configuration": {
       "title": "RepoAsk",
       "properties": {
@@ -275,12 +289,17 @@
           "default": 50,
           "description": "Init Keyword Num"
         },
+        "repoAsk.logActionConfluenceUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Static URL of the target Confluence page where new feedback entries will be appended."
+        },
         "repoAsk.confluence": {
           "type": "object",
           "default": {
             "key": "ALM",
             "isDefault": true,
-            "url": "http://localhost:8001",
+            "url": "http://localhost:8091",
             "spaceKey": "",
             "ancestorsPageId": "",
             "securityToken": ""

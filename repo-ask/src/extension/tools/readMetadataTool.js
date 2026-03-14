@@ -52,5 +52,4 @@ module.exports = function registerReadMetadataTool(deps) {
                 return toToolResult(`Found metadata for ${filtered.length} docs:\n${summaryLines.join('\n\n')}`, { metadata: filtered });
             }
         });
-
-        };
+};

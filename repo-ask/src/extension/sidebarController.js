@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const vscode = require('vscode');
+const { updateConfluencePage } = require('../mcp/confluenceApi');
 const { createOpenDocCommand, createMetadataCommands, createSearchCommand, createPromptsCommand, createDeleteCommand, createResetCommand } = require('./commands');
 
 
@@ -88,6 +90,14 @@ function createSidebarController(deps) {
 
                     if (message?.command === 'resetToDefaultDocs') {
                         await resetToDefaultDocs(message, docsWebviewView, refreshSidebarView, context);
+                    }
+
+                    if (message?.command === 'submitFeedback' && message.feedbackEntry) {
+                        await handleSubmitFeedback(message.feedbackEntry);
+                    }
+
+                    if (message?.command === 'generateSummary' && message.conversationSummary) {
+                        await handleGenerateSummary(message.conversationSummary);
                     }
                 });
 
@@ -201,17 +211,21 @@ function createSidebarController(deps) {
         const popupPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'refreshPopup.html');
         const metadataHtmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'metadata.html');
         const docStoreHtmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'docStore.html');
+        const feedbackHtmlPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'feedback.html');
         const metadataJsPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'metadata.js');
         const docStoreJsPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'docStore.js');
+        const feedbackJsPath = vscode.Uri.joinPath(context.extensionUri, 'src', 'sidebar', 'feedback.js');
 
         const htmlTemplate = fs.readFileSync(htmlPath.fsPath, 'utf8');
         const popupHtml = fs.existsSync(popupPath.fsPath) ? fs.readFileSync(popupPath.fsPath, 'utf8') : '';
         const metadataHtml = fs.existsSync(metadataHtmlPath.fsPath) ? fs.readFileSync(metadataHtmlPath.fsPath, 'utf8') : '';
         const docStoreHtml = fs.existsSync(docStoreHtmlPath.fsPath) ? fs.readFileSync(docStoreHtmlPath.fsPath, 'utf8') : '';
+        const feedbackHtml = fs.existsSync(feedbackHtmlPath.fsPath) ? fs.readFileSync(feedbackHtmlPath.fsPath, 'utf8') : '';
 
         const cssUri = webview.asWebviewUri(cssPath).toString();
         const metadataJsUri = webview.asWebviewUri(metadataJsPath).toString();
         const docStoreJsUri = webview.asWebviewUri(docStoreJsPath).toString();
+        const feedbackJsUri = webview.asWebviewUri(feedbackJsPath).toString();
 
         const docs = readAllMetadata(storagePath).sort((a, b) => String(b.last_updated).localeCompare(String(a.last_updated)));
 
@@ -219,12 +233,14 @@ function createSidebarController(deps) {
             .replace('__CSS_URI__', cssUri)
             .replace('__METADATA_JS_URI__', metadataJsUri)
             .replace('__DOC_STORE_JS_URI__', docStoreJsUri)
+            .replace('__FEEDBACK_JS_URI__', feedbackJsUri)
             .replace('__DOCS_DATA__', JSON.stringify(docs))
             .replace('__SYNC_STATUS__', JSON.stringify(sidebarSyncStatus))
             .replace('__SYNC_ERROR__', JSON.stringify(sidebarSyncError))
             .replace('__SYNC_SUCCESS__', JSON.stringify(sidebarSyncSuccess))
             .replace('__METADATA_HTML__', metadataHtml)
             .replace('__DOC_STORE_HTML__', docStoreHtml)
+            .replace('__FEEDBACK_HTML__', feedbackHtml)
             .replace('__REFRESH_POPUP__', popupHtml);
     }
 
@@ -247,13 +263,159 @@ function createSidebarController(deps) {
 </html>`;
     }
 
+    async function handleSubmitFeedback(feedbackEntry) {
+        try {
+            const configuration = vscode.workspace.getConfiguration('repoAsk');
+            const confluenceUrl = configuration.get('logActionConfluenceUrl');
+            
+            if (!confluenceUrl) {
+                vscode.window.showErrorMessage('Please set the logActionConfluenceUrl setting in RepoAsk configuration.');
+                
+                // Send error message to webview
+                if (docsWebviewView) {
+                    docsWebviewView.webview.postMessage({ 
+                        command: 'feedbackSubmitted', 
+                        success: false 
+                    });
+                }
+                return;
+            }
+            
+            await updateConfluencePage(confluenceUrl, feedbackEntry);
+            vscode.window.showInformationMessage('Feedback submitted successfully!');
+            
+            // Send success message to webview
+            if (docsWebviewView) {
+                docsWebviewView.webview.postMessage({ 
+                    command: 'feedbackSubmitted', 
+                    success: true 
+                });
+            }
+        } catch (error) {
+            console.error('Error submitting feedback:', error);
+            
+            // Provide more specific error messages
+            let errorMessage = 'Failed to submit feedback. Please try again.';
+            if (error.message.includes('not configured')) {
+                errorMessage = 'Confluence base URL not configured. Please set the repoAsk.confluence.url setting.';
+            } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                errorMessage = 'Failed to connect to Confluence server: Connection timed out. Please check your network connection and server URL.';
+            } else if (error.response && error.response.status === 404) {
+                errorMessage = 'Failed to connect to Confluence server: Page not found (404). Please check the URL and ensure the server is running.';
+            } else if (error.response && error.response.status >= 500) {
+                errorMessage = 'Failed to connect to Confluence server: Server error. Please check if the server is running and accessible.';
+            } else if (error.message.includes('getaddrinfo')) {
+                errorMessage = 'Failed to connect to Confluence server: Host not found. Please check the server URL.';
+            }
+            
+            vscode.window.showErrorMessage(errorMessage);
+            
+            // Send error message to webview
+            if (docsWebviewView) {
+                docsWebviewView.webview.postMessage({ 
+                    command: 'feedbackSubmitted', 
+                    success: false,
+                    error: errorMessage
+                });
+            }
+        }
+    }
+
+    async function handleGenerateSummary(conversationSummary) {
+        try {
+            let summary = '';
+            const inputText = String(conversationSummary || '').trim();
+            if (!inputText) {
+                if (docsWebviewView) {
+                    docsWebviewView.webview.postMessage({
+                        command: 'populateSummary',
+                        summary: ''
+                    });
+                }
+                return;
+            }
+            
+            // Try to use VS Code's built-in LLM to rewrite the provided conversation summary.
+            if (vscode.lm && vscode.LanguageModelChatMessage) {
+                try {
+                    const models = await vscode.lm.selectChatModels({});
+                    const model = models?.[0];
+                    if (model) {
+                        const instruction = [
+                            'You are a helpful assistant that rewrites conversation summaries.',
+                            'Rewrite the following conversation summary into a clear, polished, and complete summary.',
+                            'Keep all key details, decisions, and action items. Do not truncate important points.',
+                            'Return only the rewritten summary text.',
+                            '',
+                            'Conversation Summary:',
+                            inputText
+                        ].join('\n');
+
+                        const response = await model.sendRequest([
+                            vscode.LanguageModelChatMessage.User(instruction)
+                        ]);
+
+                        if (response && response.text) {
+                            let responseText = '';
+                            for await (const fragment of response.text) {
+                                responseText += fragment;
+                            }
+                            summary = responseText.trim();
+                        }
+                    }
+                } catch (llmError) {
+                    console.error('LLM error:', llmError);
+                    // Fallback to original content if LLM fails
+                    summary = inputText;
+                }
+            } else {
+                // Fallback to original content if LLM not available
+                summary = inputText;
+            }
+
+            if (!String(summary || '').trim()) {
+                summary = inputText;
+            }
+            
+            if (docsWebviewView) {
+                docsWebviewView.webview.postMessage({ 
+                    command: 'populateSummary', 
+                    summary 
+                });
+            }
+        } catch (error) {
+            console.error('Error generating summary:', error);
+            vscode.window.showErrorMessage('Failed to generate summary. Please try again.');
+            
+            // Ensure buttons are re-enabled even on error
+            if (docsWebviewView) {
+                docsWebviewView.webview.postMessage({ 
+                    command: 'populateSummary', 
+                    summary: String(conversationSummary || '')
+                });
+            }
+        }
+    }
+
+    function showLogActionButton(firstUserQuery, firstRankedDocUrl, fullAiResponse) {
+        if (docsWebviewView) {
+            docsWebviewView.webview.postMessage({ 
+                command: 'showFeedbackForm',
+                firstUserQuery: firstUserQuery,
+                firstRankedDocUrl: firstRankedDocUrl,
+                fullAiResponse: fullAiResponse
+            });
+        }
+    }
+
     return {
         sidebarProvider,
         refreshSidebarView,
         setSidebarSyncStatus,
         setSidebarSyncError,
         upsertSidebarDocument,
-        revealDocumentInSidebar
+        revealDocumentInSidebar,
+        showLogActionButton
     };
 }
 

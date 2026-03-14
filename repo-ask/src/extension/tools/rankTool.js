@@ -19,10 +19,20 @@ module.exports = function registerRankTool(deps) {
 
                 const repAskConfig = vscode.workspace.getConfiguration('repoAsk');
                 const confProfile = repAskConfig.get('confluence');
-                const confUrl = String((confProfile && typeof confProfile === 'object' ? confProfile.url : '') || 'http://127.0.0.1:8001').replace(/\/$/, '');
+                const confUrl = String((confProfile && typeof confProfile === 'object' ? confProfile.url : '') || '').replace(/\/$/, '');
                 
                 const jiraProfile = repAskConfig.get('jira');
-                const jiraUrl = String((jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : '') || 'http://127.0.0.1:8002').replace(/\/$/, '');
+                const jiraUrl = String((jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : '') || '').replace(/\/$/, '');
+                
+                if (!confUrl) {
+                    vscode.window.showErrorMessage('RepoAsk: Confluence URL not configured. Please set repoAsk.confluence.url in settings.');
+                    return toToolResult('Confluence URL not configured. Please set repoAsk.confluence.url in settings.', { results: [] });
+                }
+                
+                if (!jiraUrl) {
+                    vscode.window.showErrorMessage('RepoAsk: Jira URL not configured. Please set repoAsk.jira.url in settings.');
+                    return toToolResult('Jira URL not configured. Please set repoAsk.jira.url in settings.', { results: [] });
+                }
 
                 const results = ranked.map(item => {
                     let fullUrl = item.url || '';
@@ -48,5 +58,4 @@ module.exports = function registerRankTool(deps) {
                 return toToolResult(`Top ranked RepoAsk documents:\n${lines.join('\n')}`, { results });
             }
         });
-
-        };
+};

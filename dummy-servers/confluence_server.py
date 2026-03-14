@@ -65,6 +65,28 @@ async def get_page(page_id: str, expand: str = None):
         return JSONResponse(content=page)
     return JSONResponse(status_code=404, content={'message': 'Page not found'})
 
+@app.put('/confluence/rest/api/content/{page_id}')
+async def update_page(page_id: str, request: Request):
+    page = DUMMY_CONFLUENCE_PAGES.get(page_id)
+    if not page:
+        return JSONResponse(status_code=404, content={'message': 'Page not found'})
+    
+    try:
+        update_data = await request.json()
+        # Update page content
+        if 'body' in update_data and 'storage' in update_data['body']:
+            page['body']['storage'] = update_data['body']['storage']
+        # Update version
+        if 'version' in update_data:
+            page['version'] = update_data['version']
+        # Update title
+        if 'title' in update_data:
+            page['title'] = update_data['title']
+        
+        return JSONResponse(content=page)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={'message': f'Error updating page: {str(e)}'})
+
 @app.get('/rest/api/content')
 async def get_all_pages(expand: str = None):
     return JSONResponse(content={'results': list(DUMMY_CONFLUENCE_PAGES.values())})

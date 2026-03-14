@@ -4,7 +4,8 @@ const {
     fetchConfluencePage, 
     fetchAllConfluencePages, 
     fetchConfluencePageChildren,
-    fetchJiraIssue
+    fetchJiraIssue,
+    createConfluencePage
 } = require('./mcp');
 const {
     truncate,
@@ -118,6 +119,7 @@ function setupExtension(context) {
 
             try {
                 const forceCheckAllDocsButton = /^check\b/i.test(prompt);
+                const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
                 await answerGeneralPromptQuestion(vscode, prompt, workspacePromptContext.text, response, {
                     truncate,
                     tokenize,
@@ -126,7 +128,9 @@ function setupExtension(context) {
                     metadataList: readAllMetadata(storagePath),
                     forceCheckAllDocsButton,
                     request,
-                    scenario: 'docs'
+                    scenario: 'docs',
+                    showLogActionButton: sidebar.showLogActionButton,
+                    loggedPrompts
                 });
             } catch (error) {
                 response.markdown(`Unable to answer with prompt context: ${error.message}`);
@@ -145,6 +149,7 @@ function setupExtension(context) {
             }
 
             try {
+                const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
                 await answerCodePromptQuestion(vscode, prompt, workspacePromptContext.text, response, {
                     truncate,
                     tokenize,
@@ -153,7 +158,9 @@ function setupExtension(context) {
                     metadataList: readAllMetadata(storagePath),
                     forceCheckAllDocsButton: false,
                     request,
-                    scenario: 'code'
+                    scenario: 'code',
+                    showLogActionButton: sidebar.showLogActionButton,
+                    loggedPrompts
                 });
             } catch (error) {
                 response.markdown(`Unable to answer with prompt context: ${error.message}`);
@@ -163,10 +170,41 @@ function setupExtension(context) {
         repoAskCodeParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
     }
 
+    // Register create feedback logs page command
+    const createFeedbackLogsPageCommandDisposable = vscode.commands.registerCommand('repo-ask.createFeedbackLogsPage', async () => {
+        try {
+            const title = 'Feedback Logs';
+            const content = 'Source Query,Conversation Summary,Confluence Page/Jira Link,DateTime,Tags\n';
+            
+            const response = await createConfluencePage(title, content);
+            vscode.window.showInformationMessage(`Feedback Logs page created successfully! Page ID: ${response.id}`);
+        } catch (error) {
+            console.error('Error creating Feedback Logs page:', error);
+            vscode.window.showErrorMessage(`Failed to create Feedback Logs page: ${error.message}`);
+        }
+    });
+
+    // Register show log action button command
+    const showLogActionButtonCommandDisposable = vscode.commands.registerCommand('repo-ask.showLogActionButton', async (firstUserQuery, firstRankedDocUrl, fullAiResponse) => {
+        // Store the logged prompt in globalState to archive the chat
+        if (firstUserQuery) {
+            const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
+            if (!loggedPrompts.includes(firstUserQuery)) {
+                loggedPrompts.push(firstUserQuery);
+                await context.globalState.update('repoAsk.loggedPrompts', loggedPrompts);
+            }
+        }
+        
+        // Show the feedback form with the first user query, first ranked doc URL, and full AI response.
+        sidebar.showLogActionButton(firstUserQuery, firstRankedDocUrl, fullAiResponse);
+    });
+
     const baseSubscriptions = [
         webviewProviderDisposable,
         ...lmToolDisposables,
-        refreshCommandDisposable
+        refreshCommandDisposable,
+        createFeedbackLogsPageCommandDisposable,
+        showLogActionButtonCommandDisposable
     ];
 
     if (repoAskDocParticipant) {

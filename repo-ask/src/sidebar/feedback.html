@@ -1,0 +1,40 @@
+<section id="feedback-section" class="feedback-section" style="display: none;">
+    <div class="feedback-header">
+        <h2 class="feedback-title">Submit Feedback</h2>
+    </div>
+    <div id="success-banner" class="banner success" style="display: none; padding: 10px; margin-bottom: 15px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 4px;">
+        <span class="banner-message"></span>
+        <button class="banner-close" onclick="this.parentElement.style.display='none'">×</button>
+    </div>
+    <div id="error-banner" class="banner error" style="display: none; padding: 10px; margin-bottom: 15px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px;">
+        <span class="banner-message"></span>
+        <button class="banner-close" onclick="this.parentElement.style.display='none'">×</button>
+    </div>
+    <div class="feedback-form">
+        <div class="form-group">
+            <label for="source-query">Source Query</label>
+            <input type="text" id="source-query" class="form-input" placeholder="Enter the source query">
+        </div>
+        <div class="form-group">
+            <label for="conversation-summary">Conversation Content/Summary</label>
+            <textarea id="conversation-summary" class="form-textarea" placeholder="Enter a summary of the conversation"></textarea>
+            <button id="generate-summary-btn" class="action-btn">Generate AI Summary</button>
+        </div>
+        <div class="form-group">
+            <label for="confluence-link">Confluence Page/Jira Link</label>
+            <input type="text" id="confluence-link" class="form-input" placeholder="Enter the relevant link">
+        </div>
+        <div class="form-group">
+            <label for="datetime">Datetime</label>
+            <input type="datetime-local" id="datetime" class="form-input">
+        </div>
+        <div class="form-group">
+            <label for="tags">Tags</label>
+            <input type="text" id="tags" class="form-input" placeholder="Enter comma-separated tags">
+        </div>
+        <div class="form-actions">
+            <button id="submit-feedback-btn" class="action-btn primary">Submit</button>
+            <button id="cancel-feedback-btn" class="action-btn">Cancel</button>
+        </div>
+    </div>
+</section>

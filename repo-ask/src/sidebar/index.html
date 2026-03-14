@@ -21,6 +21,7 @@
             <div id="viewer-splitter" class="viewer-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize content and metadata"></div>
             __METADATA_HTML__
         </section>
+        __FEEDBACK_HTML__
     </main>
 
     <script>
@@ -164,6 +165,10 @@
                 });
             });
             submitRefreshBtn.addEventListener('click', () => {
+                // Disable button and show spinner
+                submitRefreshBtn.disabled = true;
+                submitRefreshBtn.innerHTML = '<div class="spinner"></div>';
+                
                 let isAll = false;
                 let isReset = false;
                 const allRadio = document.querySelector('input[name="syncType"][value="all"]');
@@ -185,6 +190,9 @@
                     const arg = syncSingleInput ? syncSingleInput.value.trim() : '';
                     if (!arg) {
                         if(typeof renderSyncError === 'function') renderSyncError('Please provide a valid URL or ID');
+                        // Re-enable button if input is invalid
+                        submitRefreshBtn.disabled = false;
+                        submitRefreshBtn.innerHTML = 'Sync';
                         return;
                     }
                     if(typeof renderSyncError === 'function') renderSyncError('');
@@ -199,6 +207,7 @@
     </script>
     <script src="__DOC_STORE_JS_URI__"></script>
     <script src="__METADATA_JS_URI__"></script>
+    <script src="__FEEDBACK_JS_URI__"></script>
     <script>
         // Init
         const initialSyncStatus = __SYNC_STATUS__;
@@ -207,6 +216,27 @@
         if(typeof renderSyncStatus === 'function') renderSyncStatus(initialSyncStatus);
         if(typeof renderSyncError === 'function') renderSyncError(initialSyncError);
         if(typeof renderSuccessMessage === 'function') renderSuccessMessage(initialSyncSuccess);
+        
+        // Initialize feedback form
+        if(typeof initFeedbackForm === 'function') initFeedbackForm();
+        
+        // Handle messages from extension
+        window.addEventListener('message', (event) => {
+            const message = event.data;
+            if (message?.command === 'populateSummary' && message.summary) {
+                if(typeof populateSummary === 'function') populateSummary(message.summary);
+            }
+            
+            // Handle sync completion messages
+            if (message?.command === 'syncStatus' || message?.command === 'syncError' || message?.command === 'syncSuccess') {
+                const submitRefreshBtn = document.getElementById('submit-refresh-btn');
+                if (submitRefreshBtn) {
+                    // Keep button disabled after sync
+                    submitRefreshBtn.disabled = true;
+                    submitRefreshBtn.innerHTML = 'Sync';
+                }
+            }
+        });
         
         // Wait briefly for elements to be fully registered just in case, then render
         setTimeout(() => {

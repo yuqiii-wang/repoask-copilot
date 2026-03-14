@@ -32,5 +32,4 @@ module.exports = function registerReadContentTool(deps) {
                 return toToolResult(`Found content for ${results.length} docs:\n\n${summaryLines.join('\n\n')}`, { contents: results });
             }
         });
-
-        };
+};
