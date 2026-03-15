@@ -20,23 +20,6 @@ def generate_dummy_data():
         {'title': 'Market Data Processing Pipeline', 'desc': 'Real-time market data processing from feed ingestion to strategy execution. Uses kafka_streams for data processing and redis_cache for low-latency access. Last updated: 2024-01-20.\n\nInput/Output Specs:\n- Input: Raw market data feeds, processing rules\n- Output: Normalized market data, indicators, strategy signals\n\nExample Trade ID: PIPELINE-2024-03234\n\nBA Comments: Optimize for low latency processing. Implement fault tolerance and recovery mechanisms.\n\nData Pipeline Flow:\n```mermaid\ngraph TD\n    A[Raw Data Feeds] --> B[Kafka Ingestion]\n    B --> C[Stream Processing]\n    C --> D[Indicator Calculation]\n    D --> E[Redis Cache]\n    E --> F[Strategy Engines]\n    F --> G[Trade Execution]\n```'}
     ]
 
-    # Generate Feedback Logs Page
-    feedback_logs_page_id = "77778800"
-    confluence_pages[feedback_logs_page_id] = {
-        'id': feedback_logs_page_id,
-        'type': 'page',
-        'status': 'current',
-        'title': 'Feedback Logs',
-        'body': {
-            'storage': {
-                'value': '<div><h1>Feedback Logs</h1><p>This page contains feedback logs from users.</p><table><thead><tr><th>Date</th><th>User</th><th>Feedback</th></tr></thead><tbody><tr><td>2024-01-01</td><td>User1</td><td>Great documentation!</td></tr></tbody></table></div>',
-                'representation': 'storage'
-            }
-        },
-        '_links': {
-            'webui': "/spaces/PROJ/pages/77778800/Feedback+Logs"
-        }
-    }
 
     # Generate Parent Confluence Page for PROJ
     parent_page_id = "77778881"
