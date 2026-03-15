@@ -69,16 +69,6 @@ async function answerCodePromptQuestion(vscodeApi, prompt, workspacePromptContex
         response.markdown(finalText);
     }
 
-    // Show Log Action button if any docs are available and prompt hasn't been logged
-    const loggedPrompts = options.loggedPrompts || [];
-    if (!loggedPrompts.includes(prompt) && (hasDocuments || !isNotFoundAnswer)) {
-        // Add Log Action button to the end of the conversation
-        response.button({
-            command: 'repo-ask.showLogActionButton',
-            title: 'Log Action',
-            arguments: [prompt, '', finalText]
-        });
-    }
 }
 
 module.exports = {

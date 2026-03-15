@@ -2,7 +2,7 @@
 name: project-agent
 description: Project implementation and maintenance agent for the local Confluence simulator and the @RepoAsk VS Code extension.
 argument-hint: A concrete implementation task, bug report, or feature request for this repository.
-tools: [vscode, execute, read, agent, edit, search, web, todo, repo-ask.repo-ask/repoaskRefresh, repo-ask.repo-ask/repoaskAnnotate, repo-ask.repo-ask/repoaskRank, repo-ask.repo-ask/repoaskDocCheck]
+tools: [vscode, execute, read, agent, edit, search, web, todo, repo-ask.repo-ask/repoaskRefresh, repo-ask.repo-ask/repoaskAnnotate, repo-ask.repo-ask/repoaskRank, repo-ask.repo-ask/repoaskDocCheck, repo-ask.repo-ask/repoaskCodeCheck, repo-ask.repo-ask/repoaskReadRepoPrompts, repo-ask.repo-ask/repoaskCodeSplitter]
 ---
 This agent is responsible for end-to-end work in this repository, including the FastAPI dummy Confluence server, the VS Code extension `@RepoAsk`, and supporting tokenization utilities.
 
@@ -88,13 +88,15 @@ Current code map (verified):
 - Dummy servers: `dummy-servers/confluence_server.py`, `dummy-servers/jira_server.py`, `dummy-servers/generate_dummy_data.py`, `dummy-servers/template_utils.py`
 
 Current behavior snapshot:
-- Chat participant supports direct `refresh` and `annotate`; refresh-like prompts are auto-detected, and other prompts go through general prompt-context Q&A.
+- Chat participants support direct `refresh` and `annotate`; refresh-like prompts are auto-detected, and other prompts go through general prompt-context Q&A.
 - `handleRefreshFromSource` parses args via `parseRefreshArg`, supports Jira issue extraction, resolves Confluence args before refresh, and provides safe fallback UI.
-- `refresh` command refreshes one item (Confluence/Jira arg path) or all Confluence docs when input is empty.
+- `refresh` command refreshes one item (Confluence/Jira arg path) or all Confluence docs when input is empty, with support for recursive hierarchy refresh and feedback sync.
 - `annotate` command updates local metadata only (single doc or all docs).
 - Sidebar search uses `rankLocalDocuments` (BM25 first, IDF fallback); selecting a doc updates embedded preview + metadata panel; metadata can be generated/saved; delete removes local doc-directory and legacy files; Add to Prompts writes `.github/prompts/*.prompt.md`; feedback logging is available.
 - General prompt Q&A ranks metadata for context selection and streams explicit "Thinking" progress messages before returning model output.
-- Command definitions are now organized in `repo-ask/src/extension/commands/` directory for better maintainability.
+- Command definitions are organized in `repo-ask/src/extension/commands/` directory for better maintainability.
+- New LLM tools available: `repoask_code_check` (git diff analysis), `repoask_read_repo_prompts` (read .github/prompts), `repoask_code_splitter` (tree-sitter based code search).
+- Chat participants: `repoaskDoc` for general document questions, `repoaskCode` for code review and changes.
 
 Risks and notes:
 - LLM responses can be noisy: always use `extractJsonObject` and validate outputs before executing commands.
