@@ -4,6 +4,7 @@
   "description": "A VS Code plugin for searching and managing Confluence documentation",
   "version": "0.1.0",
   "publisher": "repo-ask",
+  "icon": "media/logo.png",
   "engines": {
     "vscode": ">=1.106.0"
   },

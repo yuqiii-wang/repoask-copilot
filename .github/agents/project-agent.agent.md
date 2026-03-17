@@ -96,7 +96,7 @@ Current behavior snapshot:
 - General prompt Q&A ranks metadata for context selection and streams explicit "Thinking" progress messages before returning model output.
 - Command definitions are organized in `repo-ask/src/extension/commands/` directory for better maintainability.
 - New LLM tools available: `repoask_code_check` (git diff analysis), `repoask_read_repo_prompts` (read .github/prompts), `repoask_code_splitter` (tree-sitter based code search).
-- Chat participants: `repoaskDoc` for general document questions, `repoaskCode` for code review and changes.
+- Chat participants: `@repoaskDoc` helps users with general doc questions using the `local-store` by extracting doc ranking and invoking `repoask_rank`/`repoask_doc_check`. `@repoaskCode` aids with codebase features/bugs via `.github/prompts/*.md` loading and relies on `repoask_code_new_feat`/`repoask_code_explore` for Jira tie-ins, structural diffs, and codebase pattern matching.
 
 Risks and notes:
 - LLM responses can be noisy: always use `extractJsonObject` and validate outputs before executing commands.
