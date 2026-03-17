@@ -1,7 +1,6 @@
 const registerRankTool = require('./rankTool');
 const registerCheckTool = require('./checkTool');
 const registerCodeDiffCheckTool = require('./codeCheckTool');
-const registerReadRepoPromptsTool = require('./readRepoPromptsTool');
 const registerCodeExploreTool = require('./codeExploreTool');
 
 function createLanguageModelTools(deps) {
@@ -15,10 +14,9 @@ function createLanguageModelTools(deps) {
         const rankTool = registerRankTool(deps);
         const checkTool = registerCheckTool(deps);
         const codeDiffCheckTool = registerCodeDiffCheckTool(deps);
-        const readRepoPromptsTool = registerReadRepoPromptsTool(deps);
         const codeExploreTool = registerCodeExploreTool(deps);
 
-        return [rankTool, checkTool, codeDiffCheckTool, readRepoPromptsTool, codeExploreTool];
+        return [rankTool, checkTool, codeDiffCheckTool, codeExploreTool];
     }
 
     return {

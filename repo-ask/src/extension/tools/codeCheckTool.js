@@ -2,13 +2,13 @@ const { toToolResult } = require('./utils');
 
 module.exports = function registerCodeDiffCheckTool(deps) {
     const { vscode } = deps;
-    return vscode.lm.registerTool('repoask_code_diff_check', {
+    return vscode.lm.registerTool('repoask_code_new_feat', {
             prepareInvocation({ args }) {
                 return {
-                    invocationMessage: 'Generating new code check vs main/master branch...',
+                    invocationMessage: 'Generating new feature code check...',
                     confirmationMessages: {
-                        title: 'Generate new code check?',
-                        message: 'This will run git diff against main/master and return the changes for review.'
+                        title: 'Generate new feature code check?',
+                        message: 'This will run operations like git diff to write test code, check Jira prompts, or hook up query by Jira ID to locate commits.'
                     }
                 };
             },

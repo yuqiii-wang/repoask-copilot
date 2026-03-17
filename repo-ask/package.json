@@ -16,8 +16,7 @@
     "onChatParticipant:repoaskCode",
     "onLanguageModelTool:repoask_rank",
     "onLanguageModelTool:repoask_doc_check",
-    "onLanguageModelTool:repoask_code_diff_check",
-    "onLanguageModelTool:repoask_read_repo_prompts",
+    "onLanguageModelTool:repoask_code_new_feat",
     "onLanguageModelTool:repoask_code_explore"
   ],
   "main": "index.js",
@@ -110,38 +109,21 @@
 
 
       {
-        "name": "repoask_code_diff_check",
+        "name": "repoask_code_new_feat",
         "tags": [
           "repoask",
           "code",
           "diff",
-          "review",
+          "feat",
+          "jira",
           "test"
         ],
-        "toolReferenceName": "repoaskCodeDiffCheck",
-        "displayName": "RepoAsk Code Diff Check",
-        "modelDescription": "Get git diff of the current branch compared to main/master to do code review, generate tests, and verify against guides.",
-        "userDescription": "Compare current branch with main/master via git diff.",
+        "toolReferenceName": "repoaskCodeNewFeat",
+        "displayName": "RepoAsk Code New Feature",
+        "modelDescription": "Get git diff of the current branch compared to main/master to do code review, generate tests, locate git commit code by Jira ID, and extract related code from Jira prompt files.",
+        "userDescription": "Understand new features, generate tests, and connect Jira instructions using git diff.",
         "canBeReferencedInPrompt": true,
         "icon": "$(git-compare)",
-        "inputSchema": {
-          "type": "object",
-          "properties": {}
-        }
-      },
-      {
-        "name": "repoask_read_repo_prompts",
-        "tags": [
-          "repoask",
-          "prompts",
-          "code"
-        ],
-        "toolReferenceName": "repoaskReadRepoPrompts",
-        "displayName": "RepoAsk Read Repo Prompts",
-        "modelDescription": "Read the .github/prompts/*.prompt.md files and return their content to be used as instructions/guides.",
-        "userDescription": "Read repository code guidelines prompts.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(file)",
         "inputSchema": {
           "type": "object",
           "properties": {}
