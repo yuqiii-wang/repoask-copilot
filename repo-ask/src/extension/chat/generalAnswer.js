@@ -34,6 +34,7 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
         '- You MUST NOT hallucinate any information that is not explicitly present in the retrieved documents.',
         '- If no relevant documents are found or if the documents do not contain enough information to answer the question, you MUST explicitly state that you cannot answer the question based on the available documents.',
         '- You MUST cite the specific documents you used to form your answer, including document IDs and titles.',
+        '- You MUST output the top doc URL in your final output, which will be used to populate the log action feedback URL and Confluence/Jira ID.',
         '- You MUST output a summary of the checked documents in relation to the question, even if ALL docs are irrelevant.',
         '',
         'Workspace guidelines: (none)',
