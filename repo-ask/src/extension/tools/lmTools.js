@@ -1,4 +1,3 @@
-const registerDocRankTool = require('./docRankTool');
 const registerDocCheckTool = require('./docCheckTool');
 
 function createLanguageModelTools(deps) {
@@ -8,11 +7,9 @@ function createLanguageModelTools(deps) {
         if (!vscode.lm || typeof vscode.lm.registerTool !== 'function') {
             return [];
         }
-
-        const docRankTool = registerDocRankTool(deps);
         const docCheckTool = registerDocCheckTool(deps);
 
-        return [docRankTool, docCheckTool];
+        return [docCheckTool];
     }
 
     return {

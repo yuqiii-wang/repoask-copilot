@@ -2,7 +2,7 @@
 name: project-agent
 description: Project implementation and maintenance agent for the local Confluence simulator and the @RepoAsk VS Code extension.
 argument-hint: A concrete implementation task, bug report, or feature request for this repository.
-tools: [vscode, execute, read, agent, edit, search, web, todo, repo-ask.repo-ask/repoaskRefresh, repo-ask.repo-ask/repoaskAnnotate, repo-ask.repo-ask/repoaskRank, repo-ask.repo-ask/repoaskDocCheck, repo-ask.repo-ask/repoaskCodeCheck, repo-ask.repo-ask/repoaskReadRepoPrompts, repo-ask.repo-ask/repoaskCodeSplitter]
+tools: [vscode, execute, read, agent, edit, search, web, todo, ]
 ---
 This agent is responsible for end-to-end work in this repository, including the FastAPI dummy Confluence server, the VS Code extension `@RepoAsk`, and supporting tokenization utilities.
 
@@ -11,7 +11,7 @@ GUIDE:
 Keep code clean and write to new files if one file is too large. 
 
 ## When to use this agent
-- Implement or fix extension commands (`check`, `rank`, `refresh`, `annotate`) and chat participant behavior.
+- Implement or fix extension commands (`check`, `refresh`, `annotate`) and chat participant behavior.
 - Update sync logic between local store and dummy Confluence/Jira APIs.
 - Improve preprocessing/postprocessing logic for keyword extraction, summary generation, and HTML-to-markdown conversion.
 - Maintain sidebar behavior (search, preview, metadata panel, delete, add-to-prompts).
@@ -53,7 +53,7 @@ Implementation additions:
 ## Success criteria for typical tasks
 - `refresh` can sync one Confluence page by id/title/link, one Jira issue by key/id/link, and all Confluence pages when no argument is provided.
 - `check` evaluates metadata relevance and returns references backed by local markdown/plain-text content.
-- `rank` uses BM25 over local content with IDF fallback and is reused by sidebar search.
+- `search` uses BM25 over local content with IDF fallback and is reused by sidebar search.
 - Pre-process/post-process steps are integrated into refresh/annotate (`htmlToMarkdown`, tokenization keywords, LLM summary/keywords with fallback).
 - Sidebar supports sync status, search, content preview, metadata edit/generate, delete doc, and add-to-prompts.
 - Documentation reflects current behavior and commands.
@@ -95,8 +95,7 @@ Current behavior snapshot:
 - Sidebar search uses `rankLocalDocuments` (BM25 first, IDF fallback); selecting a doc updates embedded preview + metadata panel; metadata can be generated/saved; delete removes local doc-directory and legacy files; Add to Prompts writes `.github/prompts/*.prompt.md`; feedback logging is available.
 - General prompt Q&A ranks metadata for context selection and streams explicit "Thinking" progress messages before returning model output.
 - Command definitions are organized in `repo-ask/src/extension/commands/` directory for better maintainability.
-- New LLM tools available: `repoask_code_check` (git diff analysis), `repoask_read_repo_prompts` (read .github/prompts), `repoask_code_splitter` (tree-sitter based code search).
-- Chat participants: `@repoaskDoc` helps users with general doc questions using the `local-store` by extracting doc ranking and invoking `repoask_rank`/`repoask_doc_check`. `@repoaskCode` aids with codebase features/bugs via `.github/prompts/*.md` loading and relies on `repoask_code_new_feat`/`repoask_code_explore` for Jira tie-ins, structural diffs, and codebase pattern matching.
+- Chat participants: `@repoaskDoc` helps users with general doc questions using the `local-store` by directly using local ranking (`documentService.rankLocalDocuments`) and `repoask_doc_check` in a first LLM round, followed by a second LLM round for synthesizing the final answer. `@repoaskCode` aids with codebase features/bugs.
 
 Risks and notes:
 - LLM responses can be noisy: always use `extractJsonObject` and validate outputs before executing commands.

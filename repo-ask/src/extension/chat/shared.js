@@ -208,7 +208,18 @@ exports.runModelWithTools = async function runModelWithTools({
             try {
                 // Determine a friendly tool name for progress display
                 let friendlyName = toolCall.name.replace('repoask_', '').replace(/_/g, ' ');
-                exports.emitThinking(response, `Using ${friendlyName}...`);
+                
+                // Show document titles when using doc check tools
+                if (toolCall.name === 'repoask_doc_check') {
+                    if (toolCall.input && Array.isArray(toolCall.input.ids)) {
+                        const docCount = toolCall.input.ids.length;
+                        exports.emitThinking(response, `Reading content from ${docCount} document${docCount !== 1 ? 's' : ''}...`);
+                    } else {
+                        exports.emitThinking(response, `Reading content from local doc store...`);
+                    }
+                } else {
+                    exports.emitThinking(response, `Using ${friendlyName}...`);
+                }
                 
                 const result = await vscodeApi.lm.invokeTool(
                     toolCall.name,
@@ -225,8 +236,6 @@ exports.runModelWithTools = async function runModelWithTools({
                 if (toolTextOutput) {
                     // Try to extract document IDs/references if it's a rank or check tool
                     if (toolCall.name === 'repoask_doc_check') {
-                        exports.emitThinking(response, `Read content from local doc store`);
-
                         // If possible, emit a reference for the docs being checked to look like Copilot
                         if (toolCall.input && Array.isArray(toolCall.input.ids) && typeof response.reference === 'function') {
                             const vscode = vscodeApi; 
@@ -239,7 +248,6 @@ exports.runModelWithTools = async function runModelWithTools({
                                 }
                             }
                         }
-
                     } else {
                         exports.emitThinking(response, `Analyzed ${friendlyName} results`);
                     }

@@ -14,9 +14,7 @@
   "activationEvents": [
     "onView:repo-ask-documents",
     "onChatParticipant:repoaskDoc",
-    "onChatParticipant:repoaskCode",
-    "onLanguageModelTool:repoask_doc_check",
-    "onLanguageModelTool:repoask_doc_rank"
+    "onLanguageModelTool:repoask_doc_check"
   ],
   "main": "index.js",
   "contributes": {
@@ -25,45 +23,9 @@
         "id": "repoaskDoc",
         "name": "repoaskDoc",
         "description": "RepoAsk chat for general questions from the document store"
-      },
-      {
-        "id": "repoaskCode",
-        "name": "repoaskCode",
-        "description": "RepoAsk chat for local code review and changes"
       }
     ],
     "languageModelTools": [
-      {
-        "name": "repoask_doc_rank",
-        "tags": [
-          "repoask",
-          "search",
-          "rank"
-        ],
-        "toolReferenceName": "repoaskRank",
-        "displayName": "RepoAsk Rank",
-        "modelDescription": "Rank local documents using IDF scoring over local metadata and markdown content.",
-        "userDescription": "Find top matching local documents.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(list-ordered)",
-        "inputSchema": {
-          "type": "object",
-          "required": [
-            "query"
-          ],
-          "properties": {
-            "query": {
-              "type": "string",
-              "description": "Query terms used to rank local documents."
-            },
-            "limit": {
-              "type": "number",
-              "description": "Optional max number of results to return.",
-              "default": 3
-            }
-          }
-        }
-      },
       {
         "name": "repoask_doc_check",
         "tags": [
@@ -86,7 +48,12 @@
             },
             "mode": {
               "type": "string",
-              "enum": ["search", "metadata", "content", "all"],
+              "enum": [
+                "search",
+                "metadata",
+                "content",
+                "all"
+              ],
               "default": "search",
               "description": "Operation mode: search (default), metadata (read metadata), content (read content), all (read both)."
             },

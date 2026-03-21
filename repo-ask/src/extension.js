@@ -34,11 +34,9 @@ const { createLanguageModelTools } = require('./extension/tools/lmTools');
 const { createRefreshCommand, createShowLogActionButtonCommand } = require('./extension/commands');
 const { loadWorkspacePromptContext } = require('./extension/promptContext');
 const { answerGeneralPromptQuestion } = require('./extension/chat/generalAnswer');
-const { answerCodePromptQuestion } = require('./extension/chat/codeAnswer');
 
 const EMPTY_STORE_HINT = 'No local documents found. Use the sidebar popup to sync to Confluence Cloud.';
 const TOOL_NAMES = {
-    docRank: 'repoask_doc_rank',
     docCheck: 'repoask_doc_check'
 };
 
@@ -112,7 +110,6 @@ function setupExtension(context) {
     });
 
     let repoAskDocParticipant;
-    let repoAskCodeParticipant;
     if (vscode.chat && typeof vscode.chat.createChatParticipant === 'function') {
         repoAskDocParticipant = vscode.chat.createChatParticipant('repoaskDoc', async (request, chatContext, response) => {
             const prompt = request.prompt?.trim() || '';
@@ -124,15 +121,14 @@ function setupExtension(context) {
             }
 
             try {
-                const forceCheckAllDocsButton = /^check\b/i.test(prompt);
                 const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
                 await answerGeneralPromptQuestion(vscode, prompt, '', response, {
                     truncate,
                     tokenize,
-                    rankDocumentsByIdf
+                    rankDocumentsByIdf,
+                    documentService
                 }, {
                     metadataList: readAllMetadata(storagePath),
-                    forceCheckAllDocsButton,
                     request,
                     scenario: 'docs',
                     showLogActionButton: sidebar.showLogActionButton,
@@ -145,35 +141,7 @@ function setupExtension(context) {
 
         repoAskDocParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
 
-        repoAskCodeParticipant = vscode.chat.createChatParticipant('repoaskCode', async (request, chatContext, response) => {
-            const prompt = request.prompt?.trim() || '';
-            const workspacePromptContext = loadWorkspacePromptContext(vscode);
 
-            if (!prompt) {
-                response.markdown('Ask a question.');
-                return;
-            }
-
-            try {
-                const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
-                await answerCodePromptQuestion(vscode, prompt, workspacePromptContext.text, response, {
-                    truncate,
-                    tokenize,
-                    rankDocumentsByIdf
-                }, {
-                    metadataList: readAllMetadata(storagePath),
-                    forceCheckAllDocsButton: false,
-                    request,
-                    scenario: 'code',
-                    showLogActionButton: sidebar.showLogActionButton,
-                    loggedPrompts
-                });
-            } catch (error) {
-                response.markdown(`Unable to answer with prompt context: ${error.message}`);
-            }
-        });
-
-        repoAskCodeParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.svg');
     }
 
     // Register show log action button command
@@ -195,9 +163,6 @@ function setupExtension(context) {
 
     if (repoAskDocParticipant) {
         baseSubscriptions.push(repoAskDocParticipant);
-    }
-    if (repoAskCodeParticipant) {
-        baseSubscriptions.push(repoAskCodeParticipant);
     }
 
     context.subscriptions.push(...baseSubscriptions);

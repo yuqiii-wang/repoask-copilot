@@ -8,10 +8,7 @@ This extension provides two chat participants to assist you in VS Code:
 
 ### `@repoaskDoc`
 The Doc Agent helps you answer general questions using your local document store.
-*   **How it works**: It leverages `repoask_rank` to find the top relevant docs (using BM25/IDF ranking) from the `local-store` and `repoask_doc_check` to read the actual markdown content.
+*   **How it works**: It relies on built-in search ranking logic (BM25/IDF) and `repoask_doc_check`, using a two-round LLM workflow to provide clean answers without hallucination, rather than leveraging `repoask_rank`.
 *   **Capabilities**: Bases answers solely on retrieved text (no hallucination). It provides citations, doc IDs, and titles for referenced material. Includes a "Log Action" feedback button linked to the prime referenced document.
 
-### `@repoaskCode`
-The Code Agent specializes in local code review and changes.
-*   **How it works**: It reads `.github/prompts/*.md` guidelines dynamically to inform coding answers and understand requirements.
-*   **Capabilities**: It can provide code updates as unified diffs and analyze changes. It focuses on understanding requirements from local prompt files.
+
