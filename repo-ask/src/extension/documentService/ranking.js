@@ -37,47 +37,71 @@ function rankLocalDocuments(query, limit = 20) {
     type: 1,
     referenced: 4
   };
+  const NGRAM_WEIGHTS = {
+    title: 6,
+    summary: 2,
+    content: 4
+  };
 
   // Add explicit hits for keywords, id, title, tags, and type
   const lowerQuery = (query || '').toLowerCase().trim();
   const queryTerms = lowerQuery.split(/\s+/).filter(t => t.length > 0);
+  let queryNGrams = [];
+  if (typeof tokenize === 'function') {
+      const allTokens = tokenize(lowerQuery, { includeNGrams: true, nGramMax: 3 });
+      queryNGrams = allTokens.filter(t => typeof t === 'string' && t.includes(' '));
+  }
+
   for (const metadata of metadataList) {
-    let exactHitScore = 0;
+    let exactHitScore = 1;
+    let hasMatch = false;
     const mId = String(metadata.id || '').toLowerCase();
     const mTitle = String(metadata.title || '').toLowerCase();
+    const mSummary = String(metadata.summary || '').toLowerCase();
+    const mContent = String(readDocumentContent(storagePath, metadata.id) || '').toLowerCase();
     const mKeywords = Array.isArray(metadata.keywords) ? metadata.keywords.map(k => String(k).toLowerCase()) : [];
     const mTags = Array.isArray(metadata.tags) ? metadata.tags.map(t => String(t).toLowerCase()) : [];
     const mType = String(metadata.type || '').toLowerCase();
     const mReferencedQueries = Array.isArray(metadata.referencedQueries) ? metadata.referencedQueries.map(q => String(q).toLowerCase()) : [];
 
     if (lowerQuery) {
-      if (mId.includes(lowerQuery)) exactHitScore += WHOLE_QUERY_WEIGHTS.id;
-      if (mTitle.includes(lowerQuery)) exactHitScore += WHOLE_QUERY_WEIGHTS.title;
-      if (mKeywords.some(k => k.includes(lowerQuery))) exactHitScore += WHOLE_QUERY_WEIGHTS.keywords;
-      if (mTags.some(t => t.includes(lowerQuery))) exactHitScore += WHOLE_QUERY_WEIGHTS.tags;
-      if (mType.includes(lowerQuery)) exactHitScore += WHOLE_QUERY_WEIGHTS.type;
+      if (mId.includes(lowerQuery)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.id; hasMatch = true; }
+      if (mTitle.includes(lowerQuery)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.title; hasMatch = true; }
+      if (mKeywords.some(k => k.includes(lowerQuery))) { exactHitScore *= WHOLE_QUERY_WEIGHTS.keywords; hasMatch = true; }
+      if (mTags.some(t => t.includes(lowerQuery))) { exactHitScore *= WHOLE_QUERY_WEIGHTS.tags; hasMatch = true; }
+      if (mType.includes(lowerQuery)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.type; hasMatch = true; }
 
       const hasExactReferencedQueryMatch = mReferencedQueries.some(q => q === lowerQuery);
       const hasPartialReferencedQueryMatch = !hasExactReferencedQueryMatch && mReferencedQueries.some(q => q.includes(lowerQuery));
       if (hasExactReferencedQueryMatch) {
-        exactHitScore += WHOLE_QUERY_WEIGHTS.referencedExact;
+        exactHitScore *= WHOLE_QUERY_WEIGHTS.referencedExact; hasMatch = true;
       } else if (hasPartialReferencedQueryMatch) {
-        exactHitScore += WHOLE_QUERY_WEIGHTS.referencedPartial;
+        exactHitScore *= WHOLE_QUERY_WEIGHTS.referencedPartial; hasMatch = true;
       }
     }
 
     if (queryTerms.length > 0) {
       for (const term of queryTerms) {
-        if (mId.includes(term)) exactHitScore += TERM_WEIGHTS.id;
-        if (mTitle.includes(term)) exactHitScore += TERM_WEIGHTS.title;
-        if (mKeywords.some(k => k.includes(term))) exactHitScore += TERM_WEIGHTS.keywords;
-        if (mTags.some(t => t.includes(term))) exactHitScore += TERM_WEIGHTS.tags;
-        if (mType.includes(term)) exactHitScore += TERM_WEIGHTS.type;
-        if (mReferencedQueries.some(q => q.includes(term))) exactHitScore += TERM_WEIGHTS.referenced;
+        if (mId.includes(term)) { exactHitScore *= TERM_WEIGHTS.id; hasMatch = true; }
+        if (mTitle.includes(term)) { exactHitScore *= TERM_WEIGHTS.title; hasMatch = true; }
+        if (mSummary.includes(term)) { exactHitScore *= (TERM_WEIGHTS.title * 0.5 + 0.5); hasMatch = true; }
+        if (mKeywords.some(k => k.includes(term))) { exactHitScore *= TERM_WEIGHTS.keywords; hasMatch = true; }
+        if (mTags.some(t => t.includes(term))) { exactHitScore *= TERM_WEIGHTS.tags; hasMatch = true; }
+        if (mType.includes(term)) { exactHitScore *= TERM_WEIGHTS.type; hasMatch = true; }
+        if (mReferencedQueries.some(q => q.includes(term))) { exactHitScore *= TERM_WEIGHTS.referenced; hasMatch = true; }
       }
     }
     
-    if (exactHitScore > 0) {
+    if (queryNGrams.length > 0) {
+      for (const ngram of queryNGrams) {
+        const nGramLength = ngram.split(/\s+/).length || 1;
+        if (mTitle.includes(ngram)) { exactHitScore *= (NGRAM_WEIGHTS.title * nGramLength); hasMatch = true; }
+        if (mSummary.includes(ngram)) { exactHitScore *= (NGRAM_WEIGHTS.summary * nGramLength); hasMatch = true; }
+        if (mContent.includes(ngram)) { exactHitScore *= (NGRAM_WEIGHTS.content * nGramLength); hasMatch = true; }
+      }
+    }
+
+    if (hasMatch) {
         combinedScores.set(String(metadata.id), {
             ...metadata,
             score: exactHitScore
@@ -436,6 +460,7 @@ function calculateConfidence(documents, query) {
     checkLocalDocumentsAgentic,
     optimizeQueryAndRank,
     extractKeywords,
-    formatKeywordsForRanking
+    formatKeywordsForRanking,
+    tokenize
   };
 };

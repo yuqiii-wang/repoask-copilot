@@ -4,6 +4,7 @@ const cheerio = require('cheerio');
 const axios = require('axios');
 const { extractJsonObject } = require('./../tools/llm');
 const { createBm25Index } = require('../../docIndex/bm25');
+const { tokenize: tokenizeFromModule } = require('./tokenization');
 
 const ranking = require('./ranking');
 const sync = require('./sync');
@@ -14,23 +15,9 @@ const utils = require('./utils');
 
 function createDocumentService(deps) {
   const {
-  vscode,
-  storagePath,
   indexStoragePath,
-  fetchConfluencePage,
-  fetchAllConfluencePages,
-  fetchJiraIssue,
-  truncate,
-  tokenize,
-  htmlToMarkdown,
-  generateKeywords,
-  generateExtendedKeywords,
-  generateSummary,
-  readAllMetadata,
-  writeDocumentFiles,
-  readDocumentContent,
-  rankDocumentsByIdf
 } = deps;
+  const tokenize = tokenizeFromModule;
   const bm25Index = createBm25Index({
   storePath: indexStoragePath,
   indexFileName: 'bm25-index.json',
@@ -45,6 +32,7 @@ function createDocumentService(deps) {
 
   const context = {
     ...deps,
+    tokenize,
     bm25Index,
     keywordsIndex,
     fs, path, cheerio, axios, extractJsonObject, createBm25Index

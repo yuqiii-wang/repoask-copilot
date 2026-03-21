@@ -9,7 +9,6 @@ const {
 } = require('./mcp');
 const {
     truncate,
-    tokenize,
     htmlToMarkdown,
     jiraTextToMarkdown,
     generateKeywords,
@@ -54,7 +53,6 @@ function setupExtension(context) {
         fetchConfluencePageChildren,
         fetchJiraIssue,
         truncate,
-        tokenize,
         htmlToMarkdown,
         jiraTextToMarkdown,
         generateKeywords,
@@ -124,7 +122,7 @@ function setupExtension(context) {
                 const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
                 await answerGeneralPromptQuestion(vscode, prompt, '', response, {
                     truncate,
-                    tokenize,
+                    tokenize: documentService.tokenize,
                     rankDocumentsByIdf,
                     documentService
                 }, {

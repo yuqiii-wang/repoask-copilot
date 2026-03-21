@@ -28,6 +28,7 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
     const contextText = String(workspacePromptContext || '').trim();
 
     let initialRankedContext = 'No initial documents found.';
+    let topDocFromSearch = null;
     if (documentService && typeof documentService.rankLocalDocuments === 'function') {
         const ranked = documentService.rankLocalDocuments(prompt, 10);
 
@@ -53,6 +54,9 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
                     keywords: item.keywords || []
                 };
             });
+            if (results.length > 0) {
+                topDocFromSearch = results[0];
+            }
             initialRankedContext = 'Found the following relevant documents:\n' + results.map(doc => 
                 `- ID: ${doc.id} | Title: ${doc.title} | URL: ${doc.url} | Summary: ${doc.summary}`
             ).join('\n');
@@ -103,6 +107,7 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
         '- Judge which sources from the raw output are actually used and relevant to the user question.',
         '- Remove references or citations to any unused or irrelevant documents.',
         '- Format the final clear answer for the user.',
+        '- You MUST include the clickable document link for the most relevant document used in your answer.',
         '- You MUST output the top doc URL and ID for the most relevant document used in your answer at the very bottom, formatted exactly as: `[TOP_DOC_URL: <url>, TOP_DOC_ID: <id>]`.',
         '- If no documents were relevant or used, explicitly state that you cannot answer the question based on the available documents, and format the doc reference as `[TOP_DOC_URL: [NO_URL], TOP_DOC_ID: [NO_ID]]`.',
         '',
@@ -142,6 +147,16 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
     if (match && match[1] && match[2]) {
         firstRankedDocUrl = match[1].trim();
         firstRankedDocId = match[2].trim();
+    }
+
+    // fallback when output doesn't contain url
+    const isUrlMatch = finalAnswer.match(/https?:\/\/[^\s\]'"()]+/);
+    if (!isUrlMatch) {
+         if (topDocFromSearch && topDocFromSearch.url && topDocFromSearch.url !== 'None') {
+             response.markdown(`\n\n**Reference:** [${topDocFromSearch.title}](${topDocFromSearch.url})`);
+         } else {
+             response.markdown(`\n\n*No URL*`);
+         }
     }
 
     // Check if the answer indicates no relevant docs were found

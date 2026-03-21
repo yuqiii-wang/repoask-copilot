@@ -2,7 +2,7 @@ const TurndownService = require('turndown');
 const {
     tokenize: tokenizeFromTokenization,
     generateNGrams
-} = require('./tokenization');
+} = require('./extension/documentService/tokenization');
 
 // Simple n-gram generator for backward compatibility
 function generate_ngrams(tokens, minSize = 1, maxSize = 2) {
@@ -209,7 +209,6 @@ function generateExtendedKeywords(keywords) {
 
 module.exports = {
     truncate,
-    tokenize: tokenizeFromTokenization,
     htmlToMarkdown,
     jiraTextToMarkdown,
     generateKeywords,
