@@ -16,7 +16,11 @@ BDD uses natural language scenarios (Gherkin syntax) that become executable test
 
 Read `pom.xml` or gradle to understand what cucumber version to use to ensure code compatibility.
 
-### 1. Scenario Definition (Gherkin)
+### 1. Determine Feature Context
+
+Before writing the BDD tests, use Git to find the local code differences (compared to the `master`/`main` branch or local uncommitted changes). If there are no changes, check Jira or the user's context to identify the specific code feature that needs to be tested.
+
+### 2. Scenario Definition (Gherkin)
 
 Write business-readable scenarios in `src/test/resources/cucumber/*.feature` files:
 
@@ -46,7 +50,7 @@ Feature: Data-Driven Login
 ```
 
 
-### 2. Step Definitions (Cucumber)
+### 3. Step Definitions (Cucumber)
 Implement the executable Cucumber glue code, constructing the path from the source input as much as possible:
 
 ```java

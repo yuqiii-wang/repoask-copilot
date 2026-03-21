@@ -1,8 +1,8 @@
 const { toToolResult } = require('./utils');
 
-module.exports = function registerRankTool(deps) {
+module.exports = function registerDocRankTool(deps) {
     const { vscode, toolNames, documentService } = deps;
-    return vscode.lm.registerTool(toolNames.rank, {
+    return vscode.lm.registerTool(toolNames.docRank, {
             async invoke(options) {
                 const query = String(options?.input?.query || '').trim();
                 const rawLimit = Number(options?.input?.limit);
@@ -87,9 +87,9 @@ module.exports = function registerRankTool(deps) {
                         keywords: item.keywords || []
                     };
                 });
-                const lines = results.map((item, index) => `${index + 1}. ${item.title} (score ${item.score})`);
-                const internalThinking = `\n\n> Internal ranking results:\n> ${lines.join('\n> ')}`;
-                return toToolResult(`Top ranked RepoAsk documents:\n${lines.join('\n')}${internalThinking}`, { results });
+                const lines = results.map(item => `- [${item.title}](${item.url || 'None'})`);
+                const internalThinking = `\n\n<details>\n<summary>Used ${results.length} references</summary>\n\n${lines.join('\n')}\n</details>`;
+                return toToolResult(`Top ranked RepoAsk documents:${internalThinking}`, { results });
             }
         });
 };

@@ -1,8 +1,8 @@
 const { toToolResult, buildCheckAllDocsCommandLink } = require('./utils');
 
-module.exports = function registerCheckTool(deps) {
+module.exports = function registerDocCheckTool(deps) {
     const { vscode, toolNames, documentService, readAllMetadata, readDocumentContent, emptyStoreHint } = deps;
-    return vscode.lm.registerTool(toolNames.check, {
+    return vscode.lm.registerTool(toolNames.docCheck, {
             async invoke(options) {
                 const query = String(options?.input?.query || '').trim();
                 const mode = options?.input?.mode || 'search'; // search, metadata, content, all
@@ -30,10 +30,10 @@ module.exports = function registerCheckTool(deps) {
                     }
 
                     const confProfile = repAskConfig.get('confluence');
-                    const confUrl = String((confProfile && typeof confProfile === 'object' ? confProfile.url : '') || 'http://127.0.0.1:8001').replace(/\/$/, '');
+                    const confUrl = String((confProfile && typeof confProfile === 'object' ? confProfile.url : '') || '').replace(/\/$/, '');
                     
                     const jiraProfile = repAskConfig.get('jira');
-                    const jiraUrl = String((jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : '') || 'http://127.0.0.1:8002').replace(/\/$/, '');
+                    const jiraUrl = String((jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : '') || '').replace(/\/$/, '');
 
                     const results = [];
                     for (const m of filtered) {

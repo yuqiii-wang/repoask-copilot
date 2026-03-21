@@ -15,10 +15,8 @@
     "onView:repo-ask-documents",
     "onChatParticipant:repoaskDoc",
     "onChatParticipant:repoaskCode",
-    "onLanguageModelTool:repoask_rank",
     "onLanguageModelTool:repoask_doc_check",
-    "onLanguageModelTool:repoask_code_new_feat",
-    "onLanguageModelTool:repoask_code_explore"
+    "onLanguageModelTool:repoask_doc_rank"
   ],
   "main": "index.js",
   "contributes": {
@@ -36,7 +34,7 @@
     ],
     "languageModelTools": [
       {
-        "name": "repoask_rank",
+        "name": "repoask_doc_rank",
         "tags": [
           "repoask",
           "search",
@@ -105,62 +103,6 @@
               "default": 3
             }
           }
-        }
-      },
-
-
-      {
-        "name": "repoask_code_new_feat",
-        "tags": [
-          "repoask",
-          "code",
-          "diff",
-          "feat",
-          "jira",
-          "test"
-        ],
-        "toolReferenceName": "repoaskCodeNewFeat",
-        "displayName": "RepoAsk Code New Feature",
-        "modelDescription": "Get git diff of the current branch compared to main/master to do code review, generate tests, locate git commit code by Jira ID, and extract related code from Jira prompt files.",
-        "userDescription": "Understand new features, generate tests, and connect Jira instructions using git diff.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(git-compare)",
-        "inputSchema": {
-          "type": "object",
-          "properties": {}
-        }
-      },
-      {
-        "name": "repoask_code_explore",
-        "tags": [
-          "repoask",
-          "code",
-          "explore"
-        ],
-        "toolReferenceName": "repoaskCodeExplore",
-        "displayName": "RepoAsk Code Explore",
-        "modelDescription": "Explore project files gracefully. REQUIRED: Choose EXACTLY ONE 'command' per action ('ls', 'read', or 'search'). Example Input: {\"command\": \"ls\", \"path\": \"src\"} or {\"command\": \"search\", \"pattern\": \"**/*.js\"}",
-        "userDescription": "Explore directories, search for files, and read their contents.",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(search)",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "command": {
-              "type": "string",
-              "description": "Command to execute. Use 'ls' for directory listing, 'read' to read file, or 'search' to find files.",
-              "enum": ["ls", "read", "search"]
-            },
-            "path": {
-              "type": "string",
-              "description": "Path to read or list. Examples: '.', 'src', 'package.json'"
-            },
-            "pattern": {
-              "type": "string",
-              "description": "Search pattern (e.g. '**/*.js', '**/*api*')."
-            }
-          },
-          "required": ["command", "path"]
         }
       }
     ],

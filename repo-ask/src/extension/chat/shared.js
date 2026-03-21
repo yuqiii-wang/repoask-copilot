@@ -29,7 +29,9 @@ exports.toSentenceCase = function toSentenceCase(text) {
  * @param {string} message - The message to emit
  */
 exports.emitThinking = function emitThinking(response, message) {
-    response.progress(exports.toSentenceCase(message));
+    if (typeof response.progress === 'function') {
+        response.progress(message);
+    }
 };
 
 /**
@@ -187,10 +189,10 @@ exports.runModelWithTools = async function runModelWithTools({
 
         if (chunkText) {
             finalText += chunkText;
-            const preview = exports.previewForThinking(chunkText);
-            if (preview) {
-                exports.emitThinking(response, `Reasoning: ${preview}`);
-            }
+            // Optionally, we could show internal thinking here, but since Copilot
+            // already streams text progressively, repetitive 'Thinking: ...' for text chunks
+            // often causes UI flicker. So we typically suppress text chunk progress 
+            // unless it's explicitly wrapped in a reasoning block (which we might not want to show as progress anymore).
         }
 
         if (toolCalls.length === 0) {
@@ -204,7 +206,10 @@ exports.runModelWithTools = async function runModelWithTools({
 
         for (const toolCall of toolCalls) {
             try {
-                exports.emitThinking(response, `Invoking tool ${toolCall.name}...`);
+                // Determine a friendly tool name for progress display
+                let friendlyName = toolCall.name.replace('repoask_', '').replace(/_/g, ' ');
+                exports.emitThinking(response, `Using ${friendlyName}...`);
+                
                 const result = await vscodeApi.lm.invokeTool(
                     toolCall.name,
                     { input: toolCall.input, toolInvocationToken: options.request?.toolInvocationToken }
@@ -216,12 +221,33 @@ exports.runModelWithTools = async function runModelWithTools({
                     .join('\n')
                     .trim();
 
+                // Often we do NOT want to preview raw tool result text as it clutters the UI
                 if (toolTextOutput) {
-                    exports.emitThinking(
-                        response,
-                        `Tool ${toolCall.name} result: ${exports.previewForThinking(toolTextOutput)}`
-                    );
+                    // Try to extract document IDs/references if it's a rank or check tool
+                    if (toolCall.name === 'repoask_doc_check') {
+                        exports.emitThinking(response, `Read content from local doc store`);
+
+                        // If possible, emit a reference for the docs being checked to look like Copilot
+                        if (toolCall.input && Array.isArray(toolCall.input.ids) && typeof response.reference === 'function') {
+                            const vscode = vscodeApi; 
+                            // If options.storagePath is passed, we can map to the actual files
+                            if (options.storagePath) {
+                                const path = require('path');
+                                for (const id of toolCall.input.ids) {
+                                    const docPath = path.join(options.storagePath, id, 'content.md');
+                                    response.reference(vscode.Uri.file(docPath));
+                                }
+                            }
+                        }
+
+                    } else {
+                        exports.emitThinking(response, `Analyzed ${friendlyName} results`);
+                    }
                 }
+
+                // Add references if the tool provides any
+                // The tool might not provide explicit references, but Copilot style handles progress updates well.
+                // Outputting progress instead of reasoning looks much closer to Copilot.
 
                 messages.push(vscodeApi.LanguageModelChatMessage.User([
                     new vscodeApi.LanguageModelToolResultPart(toolCall.callId, result.content)

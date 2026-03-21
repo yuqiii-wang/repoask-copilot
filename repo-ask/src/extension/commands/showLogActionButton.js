@@ -50,45 +50,32 @@ module.exports = function createShowLogActionButtonCommand(deps) {
             return null;
         }
 
-        const combinedChatText = [String(firstUserQuery || '').trim(), String(fullAiResponse || '').trim()]
-            .filter(Boolean)
-            .join('\n\n');
-        const signals = extractChatSignals(combinedChatText);
-        const normalizedPreferredUrl = normalizeUrl(firstRankedDocUrl);
-        const rankedDocs = documentService.rankLocalDocuments(combinedChatText, 25);
-        const candidateMap = new Map();
-
-        for (const doc of rankedDocs) {
-            candidateMap.set(String(doc.id || '').trim(), {
-                ...doc,
-                rerankScore: Number(doc.score || 0)
-            });
-        }
-
-        for (const metadata of metadataList) {
-            const docId = String(metadata.id || '').trim();
-            const docUrl = normalizeUrl(metadata.url || metadata.link || metadata.source);
-            const matchesExplicitId = signals.confluenceIds.includes(docId) || signals.jiraIds.includes(docId);
-            const matchesExplicitUrl = docUrl && signals.urls.includes(docUrl);
-            const matchesPreferredUrl = docUrl && normalizedPreferredUrl && docUrl === normalizedPreferredUrl;
-            if (!matchesExplicitId && !matchesExplicitUrl && !matchesPreferredUrl) {
-                continue;
+        // Try to extract AI-decided top doc directly from response
+        const aiTopDocMatch = String(fullAiResponse || '').match(/\[TOP_DOC_URL:\s*(.+?),\s*TOP_DOC_ID:\s*(.+?)\]/);
+        if (aiTopDocMatch && aiTopDocMatch[1] && aiTopDocMatch[2]) {
+            const aiUrl = normalizeUrl(aiTopDocMatch[1]);
+            const aiId = aiTopDocMatch[2].trim();
+            // Find this document in metadata
+            let aiDoc = metadataList.find(m => 
+                String(m.id || '').trim() === aiId || 
+                normalizeUrl(m.url || m.link || m.source) === aiUrl
+            );
+            
+            if (aiDoc) {
+                return deriveFeedbackTarget(aiDoc);
+            } else {
+                return {
+                    id: aiId,
+                    title: '',
+                    type: '',
+                    url: aiTopDocMatch[1],
+                    confluencePageId: /^\d+$/.test(aiId) ? aiId : '',
+                    jiraId: /^[A-Z][A-Z0-9]+-\d+$/.test(aiId) ? aiId : ''
+                };
             }
-
-            const existing = candidateMap.get(docId) || {
-                ...metadata,
-                rerankScore: 0
-            };
-            existing.rerankScore += matchesExplicitId ? 1000 : 0;
-            existing.rerankScore += matchesExplicitUrl ? 800 : 0;
-            existing.rerankScore += matchesPreferredUrl ? 200 : 0;
-            candidateMap.set(docId, existing);
         }
-
-        const bestDocument = Array.from(candidateMap.values())
-            .sort((left, right) => Number(right.rerankScore || 0) - Number(left.rerankScore || 0))[0] || null;
-
-        return deriveFeedbackTarget(bestDocument);
+        
+        return null; // Do not fall back to naive rank
     }
 
     return vscode.commands.registerCommand('repo-ask.showLogActionButton', async (firstUserQuery, firstRankedDocUrl, fullAiResponse) => {

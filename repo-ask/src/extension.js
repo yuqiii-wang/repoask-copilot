@@ -38,8 +38,8 @@ const { answerCodePromptQuestion } = require('./extension/chat/codeAnswer');
 
 const EMPTY_STORE_HINT = 'No local documents found. Use the sidebar popup to sync to Confluence Cloud.';
 const TOOL_NAMES = {
-    rank: 'repoask_rank',
-    check: 'repoask_doc_check'
+    docRank: 'repoask_doc_rank',
+    docCheck: 'repoask_doc_check'
 };
 
 function setupExtension(context) {
@@ -116,7 +116,7 @@ function setupExtension(context) {
     if (vscode.chat && typeof vscode.chat.createChatParticipant === 'function') {
         repoAskDocParticipant = vscode.chat.createChatParticipant('repoaskDoc', async (request, chatContext, response) => {
             const prompt = request.prompt?.trim() || '';
-            const workspacePromptContext = loadWorkspacePromptContext(vscode);
+            // Don't load workspace prompt context for repoaskDoc
 
             if (!prompt) {
                 response.markdown('Ask a question.');
@@ -126,7 +126,7 @@ function setupExtension(context) {
             try {
                 const forceCheckAllDocsButton = /^check\b/i.test(prompt);
                 const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
-                await answerGeneralPromptQuestion(vscode, prompt, workspacePromptContext.text, response, {
+                await answerGeneralPromptQuestion(vscode, prompt, '', response, {
                     truncate,
                     tokenize,
                     rankDocumentsByIdf

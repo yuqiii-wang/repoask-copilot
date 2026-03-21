@@ -1,22 +1,18 @@
-const registerRankTool = require('./rankTool');
-const registerCheckTool = require('./checkTool');
-const registerCodeDiffCheckTool = require('./codeCheckTool');
-const registerCodeExploreTool = require('./codeExploreTool');
+const registerDocRankTool = require('./docRankTool');
+const registerDocCheckTool = require('./docCheckTool');
 
 function createLanguageModelTools(deps) {
     const { vscode } = deps;
 
     function registerRepoAskLanguageModelTools() {
-        if (!vscode.lm || typeof vscode.lm.registerTool !== 'function') {       
+        if (!vscode.lm || typeof vscode.lm.registerTool !== 'function') {
             return [];
         }
 
-        const rankTool = registerRankTool(deps);
-        const checkTool = registerCheckTool(deps);
-        const codeDiffCheckTool = registerCodeDiffCheckTool(deps);
-        const codeExploreTool = registerCodeExploreTool(deps);
+        const docRankTool = registerDocRankTool(deps);
+        const docCheckTool = registerDocCheckTool(deps);
 
-        return [rankTool, checkTool, codeDiffCheckTool, codeExploreTool];
+        return [docRankTool, docCheckTool];
     }
 
     return {
