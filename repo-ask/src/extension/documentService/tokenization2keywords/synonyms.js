@@ -175,44 +175,93 @@ function getTrimCandidates(word, suffix) {
     return [trimmed];
 }
 
-function generateExtendedKeywords(keywords) {
+const { PATTERNS, generate_structural_regex, STRUCTURAL_SEPARATORS } = require('./patternMatch');
+
+function camelCaseToDashed(camelCase) {
+    return camelCase
+        .replace(/([a-z])([A-Z])/g, '$1-$2')
+        .toLowerCase();
+}
+
+function generateSynonyms(keywords) {
     if (!Array.isArray(keywords) || keywords.length === 0) {
         return [];
     }
 
     const dictionary = loadDictionary();
-    if (dictionary.size === 0) {
-        return [];
-    }
-
-    const baseWords = [...new Set(keywords
-        .map(toSingleWordKeyword)
-        .filter(word => word.length > 2))];
-
     const expanded = new Set();
-    for (const word of baseWords) {
-        for (const suffix of COMMON_SUFFIXES) {
-            const appendedCandidates = getAppendCandidates(word, suffix);
-            for (const appended of appendedCandidates) {
-                if (appended !== word && dictionary.has(appended)) {
-                    expanded.add(appended);
+    
+    for (const kw of keywords) {
+        const textKw = String(kw || '').trim();
+        if (!textKw) continue;
+        
+        if (textKw.includes(' ')) {
+            expanded.add(textKw);
+            continue;
+        }
+
+        const digitCount = (textKw.match(/\d/g) || []).length;
+        const hasSeparator = STRUCTURAL_SEPARATORS.some(sep => textKw.includes(sep));
+        if (digitCount >= 3 || hasSeparator) {
+            const structRegex = generate_structural_regex(textKw);
+            if (structRegex) {
+                expanded.add(structRegex);
+            }
+        }
+        
+        for (const [name, pattern] of PATTERNS) {
+            const regex = new RegExp(pattern.source, 'i');
+            if (regex.test(textKw)) {
+                expanded.add(name.toLowerCase());
+                
+                if (name.includes('DATE')) {
+                    expanded.add(textKw.replace(/[\/]/g, '-'));
                 }
             }
+        }
+        
+        if (/[A-Z][a-z]+(?:[A-Z][a-z]+)+/.test(textKw)) {
+            expanded.add(camelCaseToDashed(textKw));
+        }
+        
+        if (/[a-z0-9]+(?:_[a-z0-9]+)+/.test(textKw)) {
+            expanded.add(textKw.replace(/_/g, '-'));
+        }
+        
+        if (/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(textKw)) {
+            expanded.add(textKw.replace(/[-.]/g, '-'));
+        }
+    }
 
-            const trimmedCandidates = getTrimCandidates(word, suffix);
-            for (const trimmed of trimmedCandidates) {
-                if (trimmed !== word && dictionary.has(trimmed)) {
-                    expanded.add(trimmed);
+    if (dictionary.size > 0) {
+        const baseWords = [...new Set(keywords
+            .map(toSingleWordKeyword)
+            .filter(word => word.length > 2))];
+
+        for (const word of baseWords) {
+            for (const suffix of COMMON_SUFFIXES) {
+                const appendedCandidates = getAppendCandidates(word, suffix);
+                for (const appended of appendedCandidates) {
+                    if (appended !== word && dictionary.has(appended)) {
+                        expanded.add(appended);
+                    }
+                }
+
+                const trimmedCandidates = getTrimCandidates(word, suffix);
+                for (const trimmed of trimmedCandidates) {
+                    if (trimmed !== word && dictionary.has(trimmed)) {
+                        expanded.add(trimmed);
+                    }
                 }
             }
         }
     }
 
     return [...expanded]
-        .filter(word => !baseWords.includes(word))
+        .filter(word => !keywords.includes(word))
         .slice(0, 80);
 }
 
 module.exports = {
-    generateExtendedKeywords
+    generateSynonyms
 };

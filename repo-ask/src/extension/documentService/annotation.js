@@ -1,5 +1,5 @@
 module.exports = function(context) {
-  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, checkLocalDocumentsAgentic, refreshDocument, refreshAllDocuments, refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, finalizeBm25KeywordsForDocuments,     localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, extractJsonObject } = context;
+  const { vscode, storagePath, fetchConfluencePage, truncate, tokenize, generateSynonyms, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, keywordsIndex,finalizeBm25KeywordsForDocuments,  getKeywordConfig, buildKeywordOnlyIndexText, cleanKeywords, normalizeMetadataKeywordFields, appendKeywordsToExisting, extractJsonObject } = context;
 
 async function annotateDocumentByArg(pageArg) {
   const allMetadata = readAllMetadata(storagePath);
@@ -46,14 +46,14 @@ async function annotateAllDocuments() {
 
 async function generateAnnotationWithLlm(metadata, content) {
   const originalKeywords = cleanKeywords(metadata?.keywords);
-  const fallbackKeywords = generateKeywords(content);
+  const fallbackKeywords = tokenize(content);
   const fallbackSummary = generateSummary(content);
   function appendSynonymKeywords(baseKeywords, maxSynonyms = 6) {
     const orderedBase = cleanKeywords(baseKeywords);
     if (orderedBase.length === 0) {
       return [];
     }
-    const synonymCandidates = cleanKeywords(generateExtendedKeywords(orderedBase), 80).filter(keyword => !orderedBase.includes(keyword)).slice(0, maxSynonyms);
+    const synonymCandidates = cleanKeywords(generateSynonyms(orderedBase), 80).filter(keyword => !orderedBase.includes(keyword)).slice(0, maxSynonyms);
     return cleanKeywords([...orderedBase, ...synonymCandidates]);
   }
   if (!vscode.lm || !vscode.LanguageModelChatMessage) {

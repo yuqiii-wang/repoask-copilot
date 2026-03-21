@@ -4,7 +4,7 @@ const cheerio = require('cheerio');
 const axios = require('axios');
 const { extractJsonObject } = require('./../tools/llm');
 const { createBm25Index } = require('../../docIndex/bm25');
-const { tokenize: tokenizeFromModule } = require('./tokenization');
+const { tokenize: tokenizeFromModule } = require('./tokenization2keywords');
 
 const ranking = require('./ranking');
 const sync = require('./sync');
@@ -62,10 +62,6 @@ function createDocumentService(deps) {
   return {
     syncDefaultDocs: _sync.syncDefaultDocs,
     rankLocalDocuments: _ranking.rankLocalDocuments,
-    checkLocalDocumentsAgentic: _ranking.checkLocalDocumentsAgentic,
-    optimizeQueryAndRank: _ranking.optimizeQueryAndRank,
-    extractKeywords: _ranking.extractKeywords,
-    formatKeywordsForRanking: _ranking.formatKeywordsForRanking,
     refreshDocument: _sync.refreshDocument,
     refreshConfluenceHierarchy: _sync.refreshConfluenceHierarchy,
     refreshAllDocuments: _sync.refreshAllDocuments,

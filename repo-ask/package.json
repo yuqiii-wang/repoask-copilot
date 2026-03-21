@@ -115,6 +115,35 @@
           "default": "",
           "description": "Static URL of the target Confluence page where new feedback entries will be appended."
         },
+        "repoAsk.searchWeights": {
+          "type": "object",
+          "default": {
+            "WHOLE_QUERY_WEIGHTS": {
+              "id": 15,
+              "title": 10,
+              "keywords": 8,
+              "tags": 6,
+              "type": 4,
+              "referencedExact": 28,
+              "referencedPartial": 20
+            },
+            "TERM_WEIGHTS": {
+              "id": 3,
+              "title": 2,
+              "keywords": 1.5,
+              "tags": 1.2,
+              "type": 1,
+              "referenced": 4
+            },
+            "NGRAM_WEIGHTS": {
+              "title": 6,
+              "summary": 2,
+              "content": 4
+            },
+            "BM25_WEIGHT": 1.0
+          },
+          "description": "Ranking search weights for local documents."
+        },
         "repoAsk.confluence": {
           "type": "object",
           "default": {

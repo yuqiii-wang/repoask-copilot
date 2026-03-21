@@ -11,10 +11,9 @@ const {
     truncate,
     htmlToMarkdown,
     jiraTextToMarkdown,
-    generateKeywords,
     generateSummary,
-    generateExtendedKeywords
-} = require('./textProcessing');
+    generateSynonyms
+} = require('./extension/documentService/html2md');
 const {
     ensureStoragePath,
     ensureIndexStoragePath,
@@ -25,13 +24,11 @@ const {
 
     writeDocumentFiles
 } = require('./storage');
-const { findRelevantDocuments, rankDocumentsByIdf } = require('./docIndex/relevance');
 const { parseRefreshArg } = require('./extension/tools/llm');
 const { createDocumentService } = require('./extension/documentService');
 const { createSidebarController } = require('./extension/sidebarController');
 const { createLanguageModelTools } = require('./extension/tools/lmTools');
 const { createRefreshCommand, createShowLogActionButtonCommand } = require('./extension/commands');
-const { loadWorkspacePromptContext } = require('./extension/promptContext');
 const { answerGeneralPromptQuestion } = require('./extension/chat/generalAnswer');
 
 const EMPTY_STORE_HINT = 'No local documents found. Use the sidebar popup to sync to Confluence Cloud.';
@@ -55,13 +52,11 @@ function setupExtension(context) {
         truncate,
         htmlToMarkdown,
         jiraTextToMarkdown,
-        generateKeywords,
-        generateExtendedKeywords,
+        generateSynonyms,
         generateSummary,
         readAllMetadata,
         writeDocumentFiles,
-        readDocumentContent,
-        rankDocumentsByIdf
+        readDocumentContent
     });
 
     documentService.syncDefaultDocs(context.extensionPath);
@@ -123,7 +118,6 @@ function setupExtension(context) {
                 await answerGeneralPromptQuestion(vscode, prompt, '', response, {
                     truncate,
                     tokenize: documentService.tokenize,
-                    rankDocumentsByIdf,
                     documentService
                 }, {
                     metadataList: readAllMetadata(storagePath),

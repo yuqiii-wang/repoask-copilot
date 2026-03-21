@@ -1,5 +1,5 @@
 module.exports = function(context) {
-  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex,   refreshDocument, refreshAllDocuments, refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, finalizeBm25KeywordsForDocuments, annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl } = context;
+  const { vscode, storagePath, truncate, tokenize, readAllMetadata, readDocumentContent, bm25Index, keywordsIndex, rebuildKeywordsIndexFromMetadata, normalizeMetadataKeywordFields,  } = context;
 
 const TOP_SCORE_THRESHOLD_RATIO = 0.5;
 
@@ -12,43 +12,66 @@ function rankLocalDocuments(query, limit = 20) {
   // Rank/search should use the latest metadata keywords as the keyword index corpus.
   rebuildKeywordsIndexFromMetadata(metadataList);
   const metadataById = Object.fromEntries(metadataList.map(item => [String(item.id), item]));
-  const rankedByKeywords = keywordsIndex.rankDocuments(query, metadataById, {
+  const rankedByKeywords = keywordsIndex.rankDocuments ? keywordsIndex.rankDocuments(query, metadataById, {
     limit: 1000
-  });
-  const rankedByContent = bm25Index.rankDocuments(query, metadataById, {
-    limit: 1000
-  });
+  }) : [];
+
+  // Re-implementing BM25 ranking based on ngrams up to 4
+  const lowerQuery = (query || '').toLowerCase().trim();
+  const queryTokens = typeof tokenize === 'function' ? tokenize(lowerQuery) : lowerQuery.split(/\s+/).filter(t => t.length > 0);
+  const queryTerms = [];
+  for (let i = 0; i < queryTokens.length; i++) {
+      queryTerms.push(queryTokens[i]); // 1-gram
+      if (i < queryTokens.length - 1) queryTerms.push(queryTokens[i] + ' ' + queryTokens[i+1]); // 2-gram
+      if (i < queryTokens.length - 2) queryTerms.push(queryTokens[i] + ' ' + queryTokens[i+1] + ' ' + queryTokens[i+2]); // 3-gram
+      if (i < queryTokens.length - 3) queryTerms.push(queryTokens[i] + ' ' + queryTokens[i+1] + ' ' + queryTokens[i+2] + ' ' + queryTokens[i+3]); // 4-gram
+  }
+  const uniqueQueryTerms = [...new Set(queryTerms)];
+
+  let rankedByContent = [];
+  try {
+      const { bm25TermScore } = require('./bm25Core');
+      const index = bm25Index.loadIndex();
+      const stats = bm25Index.buildStats(index);
+      
+      if (stats.totalDocs > 0 && uniqueQueryTerms.length > 0) {
+          rankedByContent = Object.values(stats.docs)
+              .map((doc) => {
+                  let score = 0;
+                  for (const term of uniqueQueryTerms) {
+                      score += bm25TermScore(term, doc, stats, { limit: 1000 });
+                  }
+
+                  const metadata = metadataById[String(doc.id)] || {};
+                  return {
+                      ...metadata,
+                      id: metadata.id || doc.id,
+                      score
+                  };
+              })
+              .filter((item) => Number(item.score) > 0)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 1000);
+      }
+  } catch (e) {
+      console.error('Error during fallback ranking:', e);
+  }
+
   const combinedScores = new Map();
 
-  const WHOLE_QUERY_WEIGHTS = {
-    id: 15,
-    title: 10,
-    keywords: 8,
-    tags: 6,
-    type: 4,
-    referencedExact: 28,
-    referencedPartial: 20
-  };
-  const TERM_WEIGHTS = {
-    id: 3,
-    title: 2,
-    keywords: 1.5,
-    tags: 1.2,
-    type: 1,
-    referenced: 4
-  };
-  const NGRAM_WEIGHTS = {
-    title: 6,
-    summary: 2,
-    content: 4
-  };
+  const configuredWeights = vscode.workspace.getConfiguration('repoAsk').get('searchWeights') || {};
+  
+  const WHOLE_QUERY_WEIGHTS = configuredWeights.WHOLE_QUERY_WEIGHTS || {};
+  const TERM_WEIGHTS = configuredWeights.TERM_WEIGHTS || {};
+  const NGRAM_WEIGHTS = configuredWeights.NGRAM_WEIGHTS || {};
+  const BM25_WEIGHT = typeof configuredWeights.BM25_WEIGHT === 'number' ? configuredWeights.BM25_WEIGHT : 1.0;
 
   // Add explicit hits for keywords, id, title, tags, and type
-  const lowerQuery = (query || '').toLowerCase().trim();
-  const queryTerms = lowerQuery.split(/\s+/).filter(t => t.length > 0);
+  const lowerQueryStr = (query || '').toLowerCase().trim();
+  const queryTermsArray = typeof tokenize === 'function' ? tokenize(lowerQueryStr) : lowerQueryStr.split(/\s+/).filter(t => t.length > 0);
   let queryNGrams = [];
   if (typeof tokenize === 'function') {
-      const allTokens = tokenize(lowerQuery, { includeNGrams: true, nGramMax: 3 });
+      const allTokens = tokenize(query, { includeNGrams: true, nGramMax: 3 });
       queryNGrams = allTokens.filter(t => typeof t === 'string' && t.includes(' '));
   }
 
@@ -59,20 +82,20 @@ function rankLocalDocuments(query, limit = 20) {
     const mTitle = String(metadata.title || '').toLowerCase();
     const mSummary = String(metadata.summary || '').toLowerCase();
     const mContent = String(readDocumentContent(storagePath, metadata.id) || '').toLowerCase();
-    const mKeywords = Array.isArray(metadata.keywords) ? metadata.keywords.map(k => String(k).toLowerCase()) : [];
+    const mKeywords = [...(Array.isArray(metadata.keywords) ? metadata.keywords : []), ...(Array.isArray(metadata.synonyms) ? metadata.synonyms : [])].map(k => String(k).toLowerCase());
     const mTags = Array.isArray(metadata.tags) ? metadata.tags.map(t => String(t).toLowerCase()) : [];
     const mType = String(metadata.type || '').toLowerCase();
     const mReferencedQueries = Array.isArray(metadata.referencedQueries) ? metadata.referencedQueries.map(q => String(q).toLowerCase()) : [];
 
-    if (lowerQuery) {
-      if (mId.includes(lowerQuery)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.id; hasMatch = true; }
-      if (mTitle.includes(lowerQuery)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.title; hasMatch = true; }
-      if (mKeywords.some(k => k.includes(lowerQuery))) { exactHitScore *= WHOLE_QUERY_WEIGHTS.keywords; hasMatch = true; }
-      if (mTags.some(t => t.includes(lowerQuery))) { exactHitScore *= WHOLE_QUERY_WEIGHTS.tags; hasMatch = true; }
-      if (mType.includes(lowerQuery)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.type; hasMatch = true; }
+    if (lowerQueryStr) {
+      if (mId.includes(lowerQueryStr)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.id; hasMatch = true; }
+      if (mTitle.includes(lowerQueryStr)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.title; hasMatch = true; }
+      if (mKeywords.some(k => k.includes(lowerQueryStr))) { exactHitScore *= WHOLE_QUERY_WEIGHTS.keywords; hasMatch = true; }
+      if (mTags.some(t => t.includes(lowerQueryStr))) { exactHitScore *= WHOLE_QUERY_WEIGHTS.tags; hasMatch = true; }
+      if (mType.includes(lowerQueryStr)) { exactHitScore *= WHOLE_QUERY_WEIGHTS.type; hasMatch = true; }
 
-      const hasExactReferencedQueryMatch = mReferencedQueries.some(q => q === lowerQuery);
-      const hasPartialReferencedQueryMatch = !hasExactReferencedQueryMatch && mReferencedQueries.some(q => q.includes(lowerQuery));
+      const hasExactReferencedQueryMatch = mReferencedQueries.some(q => q === lowerQueryStr);
+      const hasPartialReferencedQueryMatch = !hasExactReferencedQueryMatch && mReferencedQueries.some(q => q.includes(lowerQueryStr));
       if (hasExactReferencedQueryMatch) {
         exactHitScore *= WHOLE_QUERY_WEIGHTS.referencedExact; hasMatch = true;
       } else if (hasPartialReferencedQueryMatch) {
@@ -80,8 +103,8 @@ function rankLocalDocuments(query, limit = 20) {
       }
     }
 
-    if (queryTerms.length > 0) {
-      for (const term of queryTerms) {
+    if (queryTermsArray.length > 0) {
+      for (const term of queryTermsArray) {
         if (mId.includes(term)) { exactHitScore *= TERM_WEIGHTS.id; hasMatch = true; }
         if (mTitle.includes(term)) { exactHitScore *= TERM_WEIGHTS.title; hasMatch = true; }
         if (mSummary.includes(term)) { exactHitScore *= (TERM_WEIGHTS.title * 0.5 + 0.5); hasMatch = true; }
@@ -124,11 +147,11 @@ function rankLocalDocuments(query, limit = 20) {
   for (const doc of rankedByContent) {
     const id = String(doc.id);
     if (combinedScores.has(id)) {
-      combinedScores.get(id).score += doc.score;
+      combinedScores.get(id).score += doc.score * BM25_WEIGHT;
     } else {
       combinedScores.set(id, {
         ...doc,
-        score: doc.score
+        score: doc.score * BM25_WEIGHT
       });
     }
   }
@@ -138,17 +161,7 @@ function rankLocalDocuments(query, limit = 20) {
   combinedRanked = groupRelatedDocuments(combinedRanked).slice(0, limit);
   combinedRanked = applyTopScoreCutoff(combinedRanked, TOP_SCORE_THRESHOLD_RATIO);
   
-  if (combinedRanked.length > 0) {
-    return combinedRanked;
-  }
-  const fallbackCorpus = metadataList.map(metadata => ({
-    ...metadata,
-    content: readDocumentContent(storagePath, metadata.id) || ''
-  }));
-  return rankDocumentsByIdf(query, fallbackCorpus, tokenize, {
-    limit,
-    minScore: 0.01
-  });
+  return combinedRanked;
 }
 
 function applyTopScoreCutoff(documents, ratio = TOP_SCORE_THRESHOLD_RATIO) {
@@ -234,233 +247,8 @@ function groupRelatedDocuments(documents) {
   return grouped;
 }
 
-function checkLocalDocumentsAgentic(query, options = {}) {
-  const normalizedQuery = String(query || '').trim();
-  const rawLimit = Number(options?.limit);
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 50) : 5;
-  const rawMetadataCandidateLimit = Number(options?.metadataCandidateLimit);
-  const metadataCandidateLimit = Number.isFinite(rawMetadataCandidateLimit) && rawMetadataCandidateLimit > 0 ? Math.min(Math.floor(rawMetadataCandidateLimit), 1000) : Math.max(40, limit * 4);
-  if (!normalizedQuery) {
-    return {
-      query: normalizedQuery,
-      metadataScanned: 0,
-      metadataCandidates: 0,
-      contentLoaded: 0,
-      usedMetadataFallback: false,
-      references: []
-    };
-  }
-  const metadataList = readAllMetadata(storagePath).map(normalizeMetadataKeywordFields);
-  if (metadataList.length === 0) {
-    return {
-      query: normalizedQuery,
-      metadataScanned: 0,
-      metadataCandidates: 0,
-      contentLoaded: 0,
-      usedMetadataFallback: false,
-      references: []
-    };
-  }
-  const metadataCorpus = metadataList.map(doc => ({
-    ...doc,
-    content: `${String(doc.title || '')} ${(Array.isArray(doc.keywords) ? doc.keywords.join(' ') : '')} ${(Array.isArray(doc.tags) ? doc.tags.join(' ') : '')} ${String(doc.type || '')} ${String(doc.id || '')} ${(Array.isArray(doc.referencedQueries) ? doc.referencedQueries.join(' ') : '')} ${(Array.isArray(doc.referencedQueries) ? doc.referencedQueries.join(' ') : '')}`
-  }));
-  const rankedMetadata = rankDocumentsByIdf(normalizedQuery, metadataCorpus, tokenize, {
-    limit: metadataList.length,
-    minScore: 0
-  });
-  const positiveMetadata = rankedMetadata.filter(doc => Number(doc.score) > 0);
-  const metadataCandidates = (positiveMetadata.length > 0 ? positiveMetadata : metadataList).slice(0, Math.min(metadataCandidateLimit, metadataList.length));
-  const contentById = new Map();
-  const contentCorpus = metadataCandidates.map(doc => {
-    const content = readDocumentContent(storagePath, doc.id) || '';
-    contentById.set(String(doc.id || ''), content);
-    return {
-      ...doc,
-      content
-    };
-  });
-  const rankedByContent = rankDocumentsByIdf(normalizedQuery, contentCorpus, tokenize, {
-    limit,
-    minScore: 0
-  });
-  let finalResults = rankedByContent.length > 0 ? rankedByContent : metadataCandidates.slice(0, limit * 2).map(doc => ({
-    ...doc,
-    score: Number(doc.score || 0)
-  }));
-  
-  // Group related documents to ensure logical flow
-  finalResults = groupRelatedDocuments(finalResults).slice(0, limit);
-  finalResults = applyTopScoreCutoff(finalResults, TOP_SCORE_THRESHOLD_RATIO);
-  const references = finalResults.map(doc => {
-    const docId = String(doc.id || '');
-    return {
-      id: doc.id,
-      title: doc.title || 'Untitled',
-      author: doc.author || 'Unknown',
-      last_updated: doc.last_updated || '',
-      parent_confluence_topic: doc.parent_confluence_topic || '',
-      summary: truncate(doc.summary || 'No summary available', 220),
-      score: Number.isFinite(Number(doc.score)) ? Number(doc.score) : 0,
-      reference: truncate(contentById.get(docId) || '', 500)
-    };
-  });
-  const contentLoaded = contentCorpus.filter(doc => String(doc.content || '').trim().length > 0).length;
-  return {
-    query: normalizedQuery,
-    metadataScanned: metadataList.length,
-    metadataCandidates: metadataCandidates.length,
-    contentLoaded,
-    usedMetadataFallback: positiveMetadata.length === 0,
-    references
-  };
-}
-
-async function optimizeQueryAndRank(query, options = {}) {
-  const normalizedQuery = String(query || '').trim();
-  const rawLimit = Number(options?.limit);
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 50) : 5;
-  
-  if (!normalizedQuery) {
-    return {
-      query: normalizedQuery,
-      optimizedQuery: normalizedQuery,
-      iterations: 0,
-      confidence: 0,
-      documents: []
-    };
-  }
-  
-  let currentQuery = normalizedQuery;
-  let bestDocuments = [];
-  let bestConfidence = 0;
-  let iterations = 0;
-  const maxIterations = 2;
-  
-  while (iterations < maxIterations) {
-    // Rank documents with current query
-    let rankedDocuments = rankLocalDocuments(currentQuery, limit * 2);
-    
-    // Group related documents to ensure logical flow
-    rankedDocuments = groupRelatedDocuments(rankedDocuments).slice(0, limit);
-    
-    // Calculate confidence score
-    const confidence = calculateConfidence(rankedDocuments, currentQuery);
-    
-    // Update best results if current confidence is higher
-    if (confidence > bestConfidence) {
-      bestConfidence = confidence;
-      bestDocuments = rankedDocuments;
-    }
-    
-    // Check if we've reached high confidence
-    if (confidence >= 0.7) {
-      break;
-    }
-    
-    // Optimize the query for the next iteration
-    const optimizedResult = optimizeQuery(currentQuery);
-    currentQuery = optimizedResult.refinedQuery;
-    
-    iterations++;
-  }
-  
-  return {
-    query: normalizedQuery,
-    optimizedQuery: currentQuery,
-    iterations,
-    confidence: bestConfidence,
-    documents: bestDocuments
-  };
-}
-
-function optimizeQuery(query) {
-  // Simple query optimization logic
-  // This could be enhanced with the LLM-based optimizeQueryTool
-  let refined = query.trim();
-  
-  // Add context for platform-specific terms
-  if (refined.includes('jira')) {
-    refined = `Jira issue: ${refined}`;
-  }
-  if (refined.includes('confluence')) {
-    refined = `Confluence page: ${refined}`;
-  }
-  
-  // Extract keywords
-  const keywords = extractKeywords(refined);
-  
-  return {
-    refinedQuery: refined,
-    keywords
-  };
-}
-
-function extractPlatformSpecificTerms(query) {
-  // Extract platform-specific terms like "jira" and "confluence"
-  const platformTerms = [];
-  if (query.toLowerCase().includes('jira')) {
-      platformTerms.push('jira');
-  }
-  if (query.toLowerCase().includes('confluence')) {
-      platformTerms.push('confluence');
-  }
-  return platformTerms;
-}
-
-function extractKeywords(query) {
-  const words = query.toLowerCase().split(/\s+/);
-  const stopWords = new Set(['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by']);
-  
-  // Extract platform-specific terms and other keywords
-  const keywords = words
-      .filter(word => !stopWords.has(word) && word.length > 2)
-      .concat(extractPlatformSpecificTerms(query));
-  
-  // Remove duplicates
-  return [...new Set(keywords)];
-}
-
-function formatKeywordsForRanking(keywords) {
-  // Format keywords for optimal ranking
-  // 1. Remove duplicates
-  // 2. Sort by length (longer keywords first for better matching)
-  // 3. Ensure proper casing
-  return [...new Set(keywords)]
-      .sort((a, b) => b.length - a.length)
-      .map(keyword => {
-          // Capitalize first letter for proper formatting
-          return keyword.charAt(0).toUpperCase() + keyword.slice(1);
-      });
-}
-
-function calculateConfidence(documents, query) {
-  if (!documents || documents.length === 0) {
-    return 0;
-  }
-  
-  // Calculate average score
-  const averageScore = documents.reduce((sum, doc) => sum + (doc.score || 0), 0) / documents.length;
-  
-  // Normalize score to 0-1 range
-  const normalizedScore = Math.min(averageScore / 10, 1);
-  
-  // Check if top document has a significantly higher score
-  const topScore = documents[0].score || 0;
-  const scoreRatio = topScore / averageScore;
-  
-  // Boost confidence if top document is much better than others
-  const confidence = normalizedScore * (scoreRatio > 1.5 ? 1.2 : 1);
-  
-  return Math.min(confidence, 1);
-}
-
   return {
     rankLocalDocuments,
-    checkLocalDocumentsAgentic,
-    optimizeQueryAndRank,
-    extractKeywords,
-    formatKeywordsForRanking,
     tokenize
   };
 };

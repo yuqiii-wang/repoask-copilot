@@ -1,5 +1,6 @@
 module.exports = function(context) {
-  const { vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, checkLocalDocumentsAgentic, refreshDocument, refreshAllDocuments, refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, finalizeBm25KeywordsForDocuments, annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension,         writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl } = context;
+  const { vscode, keywordsIndex, } = context;
+  const { generateSynonyms } = require('./tokenization2keywords');
 
 function getKeywordConfig() {
   const initKeywordNum = vscode.workspace.getConfiguration('repoAsk').get('initKeywordNum') || 40;
@@ -17,9 +18,10 @@ function buildKeywordOnlyIndexText(metadata) {
   const {
     DEFAULT_KEYWORD_LIMIT
   } = getKeywordConfig();
-  const keywords = cleanKeywords(metadata.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT * 4);
-  const tags = cleanKeywords(metadata.tags, getKeywordConfig().DEFAULT_KEYWORD_LIMIT * 4);
-  return [...keywords, ...tags].join(' ');
+  const keywords = cleanKeywords(metadata.keywords, DEFAULT_KEYWORD_LIMIT * 4);
+  const tags = cleanKeywords(metadata.tags, DEFAULT_KEYWORD_LIMIT * 4);
+  const extended = cleanKeywords(metadata.synonyms, 200);
+  return [...keywords, ...tags, ...extended].join(' ');
 }
 
 function rebuildKeywordsIndexFromMetadata(metadataList = []) {
@@ -51,19 +53,28 @@ function cleanKeywords(values, limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT)
 
 function normalizeMetadataKeywordFields(metadata = {}) {
   const base = metadata && typeof metadata === 'object' ? metadata : {};
-  const keywords = cleanKeywords(base.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
+  const allKeywords = cleanKeywords(base.keywords, 1000);
+  
+  // Move n-grams from primary keywords to extended keywords
+  const nGrams = allKeywords.filter(kw => kw.includes(' '));
+  const keywords = cleanKeywords(allKeywords.filter(kw => !kw.includes(' ')), getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
+
   const tags = cleanKeywords(base.tags, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
   const referencedQueries = Array.isArray(base.referencedQueries)
     ? [...new Set(base.referencedQueries.map(value => String(value || '').trim()).filter(Boolean))]
     : typeof base.referencedQueries === 'string'
       ? [...new Set(base.referencedQueries.split(',').map(value => value.trim()).filter(Boolean))]
       : [];
+      
+  const extended = cleanKeywords(generateSynonyms(allKeywords), Infinity);
+  const finalExtended = cleanKeywords([...new Set([...extended, ...nGrams])], Infinity);
+
   return {
     ...base,
     keywords,
     tags,
     referencedQueries,
-    extended_keywords: cleanKeywords(generateExtendedKeywords(keywords), 80)
+    synonyms: finalExtended
   };
 }
 

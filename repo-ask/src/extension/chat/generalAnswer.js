@@ -9,7 +9,6 @@ const {
 async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptContext, response, deps, options = {}) {
     const {
         tokenize,
-        rankDocumentsByIdf,
         storagePath,
         documentService
     } = deps;

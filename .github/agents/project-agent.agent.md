@@ -25,7 +25,7 @@ Keep code clean and write to new files if one file is too large.
 - Keep local store contract aligned with `repo-ask/src/storage.js`:
 	- Current primary format: one directory per doc (`local-store/<id>/content.md`, `local-store/<id>/metadata.json`, optional `local-store/<id>/images/*`).
 	- Backward compatibility: legacy flat files (`<id>.md`, `<id>.json`, `<id>.txt`) are still read/deleted when present.
-	- Indices: stored in `local-store-index/` with two index dimensions: keywords and bm25 for fast local retrieval.
+	- Indices: stored in `local-store-index/` with two index dimensions: keywords and bm25 (supporting 1-4 n-grams) for fast local retrieval.
 
 ## Capability expectations
 - Understand and modify FastAPI routes and dummy data models in `dummy-servers/confluence_server.py` and `dummy-servers/jira_server.py`.
@@ -33,7 +33,7 @@ Keep code clean and write to new files if one file is too large.
 - Reuse tokenization helpers from `repo-ask/src/tokenization/*` and text-processing helpers from `repo-ask/src/textProcessing.js`.
 - Understand document lifecycle in `repo-ask/src/extension/documentService/*`, and LM tool/chat routing in `repo-ask/src/extension/tools/lmTools.js` and `repo-ask/src/extension/promptContext.js`.
 - Understand specific tool definitions under `repo-ask/src/extension/tools/*` and chat handlers under `repo-ask/src/extension/chat/*`.
-- Keep ranking behavior consistent with `documentService.rankLocalDocuments`: BM25-first ranking with IDF fallback.
+- Keep ranking behavior consistent with `documentService.rankLocalDocuments`: BM25 ranking (with 4 n-gram sliding window and keywords weighing) with IDF fallback.
 - Run project commands for verification (`npm run compile`, `npx vsce package`, and relevant Python syntax checks).
 
 ## Implementation guidance
@@ -53,7 +53,7 @@ Implementation additions:
 ## Success criteria for typical tasks
 - `refresh` can sync one Confluence page by id/title/link, one Jira issue by key/id/link, and all Confluence pages when no argument is provided.
 - `check` evaluates metadata relevance and returns references backed by local markdown/plain-text content.
-- `search` uses BM25 over local content with IDF fallback and is reused by sidebar search.
+- `search` uses BM25 and keyword indices (with combined weighted scoring) over local content with IDF fallback and is reused by sidebar search.
 - Pre-process/post-process steps are integrated into refresh/annotate (`htmlToMarkdown`, tokenization keywords, LLM summary/keywords with fallback).
 - Sidebar supports sync status, search, content preview, metadata edit/generate, delete doc, and add-to-prompts.
 - Documentation reflects current behavior and commands.

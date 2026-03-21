@@ -101,32 +101,28 @@ module.exports = function registerDocCheckTool(deps) {
                         return toToolResult('Missing required `query` input for check tool.', { references: [] });
                     }
 
-                    const agenticResult = documentService.checkLocalDocumentsAgentic(query, {
-                        limit,
-                        metadataCandidateLimit: Math.max(40, limit * 4)
-                    });
+                    const rankedDocs = documentService.rankLocalDocuments(query, limit);
 
-                    if (!agenticResult.references || agenticResult.references.length === 0) {
+                    if (!rankedDocs || rankedDocs.length === 0) {
                         return toToolResult(`No relevant documents found in local store. ${buildCheckAllDocsCommandLink(query)}`, { references: [] });
                     }
 
-                    const confidentRefs = agenticResult.references.filter(r => r.score > 0);
+                    const confidentRefs = rankedDocs.filter(r => r.score > 0);
                     if (confidentRefs.length === 0) {
                         return toToolResult(`No confident local documents found for your query. Please ${buildCheckAllDocsCommandLink(query)}`, { references: [] });
                     }
 
-                    const references = confidentRefs.map((ref) => ({
-                        ...ref,
-                        summary: ref.summary || 'No summary available',
-                        reference: ref.reference || ''
-                    }));
+                    const references = confidentRefs.map((ref) => {
+                        const content = readDocumentContent(ref.id) || '';
+                        return {
+                            ...ref,
+                            summary: ref.summary || 'No summary available',
+                            reference: content.length > 500 ? content.substring(0, 500) + '...' : content
+                        };
+                    });
                     const lines = references.map((ref, index) => `${index + 1}. ${ref.title} (updated ${ref.last_updated || '-'})`);
                     const summaryLines = [
-                        `Top relevant RepoAsk references (agentic check):`,
-                        `- Metadata scanned: ${agenticResult.metadataScanned}`,
-                        `- Metadata candidates loaded for content: ${agenticResult.metadataCandidates}`,
-                        `- Docs with content loaded: ${agenticResult.contentLoaded}`,
-                        `- Metadata fallback used: ${agenticResult.usedMetadataFallback ? 'yes' : 'no'}`,
+                        `Top relevant RepoAsk references (ranked check):`,
                         '',
                         ...lines,
                         '',
@@ -136,10 +132,8 @@ module.exports = function registerDocCheckTool(deps) {
                     return toToolResult(summaryLines.join('\n'), {
                         references,
                         diagnostics: {
-                            metadataScanned: agenticResult.metadataScanned,
-                            metadataCandidates: agenticResult.metadataCandidates,
-                            contentLoaded: agenticResult.contentLoaded,
-                            usedMetadataFallback: agenticResult.usedMetadataFallback
+                            docsFound: rankedDocs.length,
+                            confidentDocs: confidentRefs.length
                         }
                     });
                 }

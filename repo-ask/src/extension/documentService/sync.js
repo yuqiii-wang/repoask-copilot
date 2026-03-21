@@ -1,5 +1,5 @@
 module.exports = function(context) {
-  const { fs, path, vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, jiraTextToMarkdown, generateKeywords, generateExtendedKeywords, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, checkLocalDocumentsAgentic,        annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl } = context;
+  const { fs, path, vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, jiraTextToMarkdown, generateSynonyms, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, bm25Index, keywordsIndex, rankLocalDocuments,        annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, rebuildKeywordsIndexFromMetadata, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl } = context;
 
 async function refreshDocument(pageArg, options = {}) {
   const page = await fetchConfluencePage(pageArg);
@@ -90,13 +90,13 @@ async function processDocument(page) {
     url: sourceUrl,
     type: 'confluence',
     keywords: [],
-    extended_keywords: [],
+    synonyms: [],
     summary: '',
     tags: Array.isArray(existingMetadata.tags) ? existingMetadata.tags : [],
     feedback: String(existingMetadata.feedback || '').trim(),
     referencedQueries: Array.isArray(existingMetadata.referencedQueries) ? existingMetadata.referencedQueries : []
   };
-  const tokenizationKeywords = cleanKeywords(generateKeywords(markdownContent), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+  const tokenizationKeywords = cleanKeywords(tokenize(markdownContent), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
   bm25Index.upsertDocument(page.id, markdownContent);
   const bm25Keywords = cleanKeywords(bm25Index.extractKeywordsForDocument(page.id, {
     limit: getKeywordConfig().BM25_KEYWORD_LIMIT
@@ -110,7 +110,7 @@ async function processDocument(page) {
     ...existingMetadata,
     ...baseMetadata,
     keywords: mergedKeywords,
-    extended_keywords: cleanKeywords(generateExtendedKeywords(mergedKeywords), 80),
+    synonyms: cleanKeywords(generateSynonyms(mergedKeywords), 80),
     summary: String(existingMetadata.summary || '').trim()
   };
   writeDocumentFiles(storagePath, page.id, markdownContent, metadata);
@@ -150,13 +150,13 @@ async function processJiraIssue(issue) {
     url: resolveSourceUrl(issue),
     type: 'jira',
     keywords: [],
-    extended_keywords: [],
+    synonyms: [],
     summary: '',
     tags: Array.isArray(existingMetadata.tags) ? existingMetadata.tags : [],
     feedback: String(existingMetadata.feedback || '').trim(),
     referencedQueries: Array.isArray(existingMetadata.referencedQueries) ? existingMetadata.referencedQueries : []
   };
-  const tokenizationKeywords = cleanKeywords(generateKeywords(markdownContent), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+  const tokenizationKeywords = cleanKeywords(tokenize(markdownContent), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
   bm25Index.upsertDocument(issue?.id, markdownContent);
   const bm25Keywords = cleanKeywords(bm25Index.extractKeywordsForDocument(issue?.id, {
     limit: getKeywordConfig().BM25_KEYWORD_LIMIT
@@ -170,7 +170,7 @@ async function processJiraIssue(issue) {
     ...existingMetadata,
     ...baseMetadata,
     keywords: mergedKeywords,
-    extended_keywords: cleanKeywords(generateExtendedKeywords(mergedKeywords), 80),
+    synonyms: cleanKeywords(generateSynonyms(mergedKeywords), 80),
     summary: String(existingMetadata.summary || '').trim()
   };
   writeDocumentFiles(storagePath, issue?.id, markdownContent, metadata);
@@ -204,7 +204,7 @@ async function finalizeBm25KeywordsForDocuments(docIds = []) {
     const bm25Keywords = cleanKeywords(bm25Index.extractKeywordsForDocument(id, {
       limit: getKeywordConfig().BM25_KEYWORD_LIMIT
     }), getKeywordConfig().BM25_KEYWORD_LIMIT);
-    const tokenizationKeywords = cleanKeywords(generateKeywords(content), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+    const tokenizationKeywords = cleanKeywords(tokenize(content), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
     const mergedKeywords = mergeKeywordsPreservingSignals({
       structuralKeywords: tokenizationKeywords,
       modelKeywords: bm25Keywords,

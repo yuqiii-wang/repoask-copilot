@@ -4,10 +4,10 @@ const path = require('path');
 module.exports = function(context) {
   const { vscode, storagePath, indexStoragePath, fetchConfluencePage, 
     fetchAllConfluencePages, fetchJiraIssue, truncate, tokenize, 
-    htmlToMarkdown, generateKeywords, generateExtendedKeywords, 
+    htmlToMarkdown, generateSynonyms, 
     generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, 
-    rankDocumentsByIdf, bm25Index, keywordsIndex, rankLocalDocuments, 
-    checkLocalDocumentsAgentic, refreshDocument, refreshAllDocuments, 
+    bm25Index, keywordsIndex, rankLocalDocuments, 
+    refreshDocument, refreshAllDocuments, 
     refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, 
     finalizeBm25KeywordsForDocuments, annotateDocumentByArg, annotateAllDocuments,
      annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, 
@@ -85,11 +85,11 @@ function resolveSourceUrl(source) {
     if (isJira) {
       const jiraProfile = configuration.get('jira');
       const jiraObjectUrl = jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : undefined;
-      base = String(jiraObjectUrl || 'http://127.0.0.1:8002').replace(/\/$/, '');
+      base = String(jiraObjectUrl || '').replace(/\/$/, '');
     } else {
       const confProfile = configuration.get('confluence');
       const confObjectUrl = confProfile && typeof confProfile === 'object' ? confProfile.url : undefined;
-      base = String(confObjectUrl || 'http://127.0.0.1:8001').replace(/\/$/, '');
+      base = String(confObjectUrl || '').replace(/\/$/, '');
     }
 
     if (!candidate.startsWith('/')) {
@@ -140,7 +140,7 @@ function updateStoredMetadataById(docId, patch = {}) {
   if (!content) {
     throw new Error(`No local content found for document ${docId}.`);
   }
-  const tokenizationKeywords = cleanKeywords(generateKeywords(content), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+  const tokenizationKeywords = cleanKeywords(tokenize(content), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
   const manualKeywords = cleanKeywords(patch.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
   const nextKeywords = mergeKeywordsPreservingSignals({
     structuralKeywords: tokenizationKeywords,
