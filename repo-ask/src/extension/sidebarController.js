@@ -400,15 +400,41 @@ function createSidebarController(deps) {
             
             // Provide more specific error messages
             let errorMessage = 'Failed to submit feedback. Please try again.';
-            if (error.message.includes('not configured')) {
+            
+            const body = error.response?.data || error.response?.body;
+            let bodyMessage = '';
+            if (typeof body === 'string') {
+                bodyMessage = body.trim();
+            } else if (body && typeof body === 'object') {
+                bodyMessage = (body.message || body.error || JSON.stringify(body)).trim();
+            }
+
+            if (bodyMessage && bodyMessage !== '{}') {
+                errorMessage = `Failed to connect to Confluence server: ${bodyMessage}`;
+            } else if (error.message && error.message.includes('not configured')) {
                 errorMessage = 'Confluence base URL not configured. Please set the repoAsk.confluence.url setting.';
-            } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+            } else if (error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'))) {
                 errorMessage = 'Failed to connect to Confluence server: Connection timed out. Please check your network connection and server URL.';
-            } else if (error.response && error.response.status === 404) {
-                errorMessage = 'Failed to connect to Confluence server: Page not found (404). Please check the URL and ensure the server is running.';
-            } else if (error.response && error.response.status >= 500) {
-                errorMessage = 'Failed to connect to Confluence server: Server error. Please check if the server is running and accessible.';
-            } else if (error.message.includes('getaddrinfo')) {
+            } else if (error.response) {
+                const status = error.response.status;
+                if (status === 400) {
+                    errorMessage = 'Failed to connect to Confluence server: Bad Request (400). Please check your request data.';
+                } else if (status === 401) {
+                    errorMessage = 'Failed to connect to Confluence server: Unauthorized (401). Please check your credentials.';
+                } else if (status === 402) {
+                    errorMessage = 'Failed to connect to Confluence server: Payment Required (402).';
+                } else if (status === 403) {
+                    errorMessage = 'Failed to connect to Confluence server: Forbidden (403). You do not have permission to perform this action.';
+                } else if (status === 404) {
+                    errorMessage = 'Failed to connect to Confluence server: Page not found (404). Please check the URL and ensure the server is running.';
+                } else if (status === 504) {
+                    errorMessage = 'Failed to connect to Confluence server: Gateway Timeout (504). The server took too long to respond.';
+                } else if (status >= 500) {
+                    errorMessage = `Failed to connect to Confluence server: Server error (${status}). Please check if the server is running and accessible.`;
+                } else {
+                    errorMessage = `Failed to connect to Confluence server: HTTP Error ${status}.`;
+                }
+            } else if (error.message && error.message.includes('getaddrinfo')) {
                 errorMessage = 'Failed to connect to Confluence server: Host not found. Please check the server URL.';
             }
             
