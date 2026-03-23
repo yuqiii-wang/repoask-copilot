@@ -6,7 +6,10 @@ module.exports = function createRefreshCommand(deps) {
         storagePath,
         readAllMetadata,
         readDocumentContent,
-        writeDocumentFiles
+        writeDocumentFiles,
+        refreshCancelEmitter,
+        setRefreshCanceled,
+        httpManager
     } = deps;
     const { parseRefreshArg } = require('../tools/llm');
 
@@ -114,14 +117,26 @@ module.exports = function createRefreshCommand(deps) {
                 refreshArg = arg;
             }
         }
-        
+
+        // Reset cancel state
+        if (setRefreshCanceled) {
+            setRefreshCanceled(false);
+        }
+        if (httpManager) {
+            httpManager.resetCancel();
+        }
+
         sidebar.setSidebarSyncStatus('Downloading from source...');
         
-        // Set up timeout
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => {
-                reject(new Error('Refresh operation timed out after 10 seconds'));
-            }, 10000); // 10-second timeout
+        // Set up cancel promise
+        let cancelResolve;
+        const cancelPromise = new Promise((_, reject) => {
+            cancelResolve = reject;
+            if (refreshCancelEmitter) {
+                refreshCancelEmitter.once('cancel', () => {
+                    reject(new Error('Refresh canceled by user'));
+                });
+            }
         });
         
         try {
@@ -148,11 +163,14 @@ module.exports = function createRefreshCommand(deps) {
                         const axios = require('axios');
                         const cheerio = require('cheerio');
                         
-                        const response = await axios.get(feedbackUrl, {
-                            timeout: 10000,
-                            maxContentLength: Infinity,
-                            maxBodyLength: Infinity
-                        });
+                        const response = await Promise.race([
+                            axios.get(feedbackUrl, {
+                                timeout: 10000,
+                                maxContentLength: Infinity,
+                                maxBodyLength: Infinity
+                            }),
+                            cancelPromise
+                        ]);
                         
                         const $ = cheerio.load(response.data);
                         
@@ -190,6 +208,7 @@ module.exports = function createRefreshCommand(deps) {
                         });
                     }
                 } catch (error) {
+                    if (error.message === 'Refresh canceled by user') throw error;
                     console.error('Error fetching feedback from Confluence:', error);
                     // Fallback to existing reference queries
                     allMetadata.forEach(doc => {
@@ -223,18 +242,26 @@ module.exports = function createRefreshCommand(deps) {
                                 if (!existingIds.has(query)) {
                                     // Try to refresh by ID
                                     try {
-                                        await documentService.refreshDocument(query, {
-                                            onDocumentProcessed: collectProcessedDocId
-                                        });
+                                        await Promise.race([
+                                            documentService.refreshDocument(query, {
+                                                onDocumentProcessed: collectProcessedDocId
+                                            }),
+                                            cancelPromise
+                                        ]);
                                         existingIds.add(query);
                                     } catch (e) {
+                                        if (e.message === 'Refresh canceled by user') throw e;
                                         console.error(`Failed to refresh by ID ${query}:`, e);
                                         // If ID refresh fails, try as link
                                         try {
-                                            await documentService.refreshDocument(query, {
-                                                onDocumentProcessed: collectProcessedDocId
-                                            });
+                                            await Promise.race([
+                                                documentService.refreshDocument(query, {
+                                                    onDocumentProcessed: collectProcessedDocId
+                                                }),
+                                                cancelPromise
+                                            ]);
                                         } catch (e2) {
+                                            if (e2.message === 'Refresh canceled by user') throw e2;
                                             console.error(`Failed to refresh by link ${query}:`, e2);
                                         }
                                     }
@@ -242,10 +269,14 @@ module.exports = function createRefreshCommand(deps) {
                             } else {
                                 // Try as link
                                 try {
-                                    await documentService.refreshDocument(query, {
-                                        onDocumentProcessed: collectProcessedDocId
-                                    });
+                                    await Promise.race([
+                                        documentService.refreshDocument(query, {
+                                            onDocumentProcessed: collectProcessedDocId
+                                        }),
+                                        cancelPromise
+                                    ]);
                                 } catch (e) {
+                                    if (e.message === 'Refresh canceled by user') throw e;
                                     console.error(`Failed to refresh by link ${query}:`, e);
                                 }
                             }
@@ -271,6 +302,7 @@ module.exports = function createRefreshCommand(deps) {
                                 }
                             }
                         } catch (e) {
+                            if (e.message === 'Refresh canceled by user') throw e;
                             console.error(`Error processing reference query ${query}:`, e);
                         }
                     }
@@ -281,7 +313,7 @@ module.exports = function createRefreshCommand(deps) {
                 } else {
                     sidebar.setSidebarSyncStatus('Reference queries loaded successfully');
                 }
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Brief delay to show status
+                await Promise.race([new Promise(resolve => setTimeout(resolve, 1000)), cancelPromise]); // Brief delay to show status
             } else if (typeof refreshArg === 'object' && refreshArg.type === 'recursive' && refreshArg.arg) {
                 result = await Promise.race([
                     documentService.refreshConfluenceHierarchy(refreshArg.arg, {
@@ -292,10 +324,10 @@ module.exports = function createRefreshCommand(deps) {
                             }
                         }
                     }),
-                    timeoutPromise
+                    cancelPromise
                 ]);
             } else if (refreshArg) {
-                const parsedArg = await parseRefreshArg(vscode, refreshArg);
+                const parsedArg = await Promise.race([parseRefreshArg(vscode, refreshArg), cancelPromise]);
                 if (parsedArg.source === 'regex-jira') {
                     result = await Promise.race([
                         documentService.refreshJiraIssue(refreshArg, {
@@ -306,7 +338,7 @@ module.exports = function createRefreshCommand(deps) {
                             }
                             }
                         }),
-                        timeoutPromise
+                        cancelPromise
                     ]);
                 } else {
                     result = await Promise.race([
@@ -318,7 +350,7 @@ module.exports = function createRefreshCommand(deps) {
                             }
                             }
                         }),
-                        timeoutPromise
+                        cancelPromise
                     ]);
                 }
             } else {
@@ -331,7 +363,7 @@ module.exports = function createRefreshCommand(deps) {
                             }
                         }
                     }),
-                    timeoutPromise
+                    cancelPromise
                 ]);
             }
             
@@ -345,16 +377,21 @@ module.exports = function createRefreshCommand(deps) {
                     documentService.rankLocalDocuments('');
                 }
                 sidebar.setSidebarSyncStatus('Document index refreshed successfully');
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Brief delay to show status
+                await Promise.race([new Promise(resolve => setTimeout(resolve, 1000)), cancelPromise]); // Brief delay to show status
             }
             
             sidebar.setSidebarSyncStatus('');
             sidebar.setSidebarSyncError('');
             sidebar.refreshSidebarView();
         } catch (error) {
-            sidebar.setSidebarSyncStatus('');
-            sidebar.setSidebarSyncError(error.message);
-            vscode.window.showErrorMessage(`Refresh failed: ${error.message}`);
+            if (error.message === 'Refresh canceled by user') {
+                sidebar.setSidebarSyncStatus('');
+                sidebar.setSidebarSyncError('');
+            } else {
+                sidebar.setSidebarSyncStatus('');
+                sidebar.setSidebarSyncError(error.message);
+                vscode.window.showErrorMessage(`Refresh failed: ${error.message}`);
+            }
         }
     });
 };

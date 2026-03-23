@@ -1,11 +1,14 @@
 <header class="header" style="position: relative;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h1 class="title">Doc Store</h1>
-                <button id="open-refresh-popup-btn" class="icon-btn" aria-label="Refresh Documents" title="Refresh Documents" style="background:none;border:none;cursor:pointer;color:inherit;padding:4px;display:flex;align-items:center;">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                        <path fill-rule="evenodd" clip-rule="evenodd" d="M4.681 3H2V2h3.5l.5.5V6H5V4a5 5 0 1 0 4.53 8.36l.334.943A6 6 0 1 1 4.681 3z"/>
-                    </svg>
-                </button>
+                <div style="position: relative; display: inline-flex;">
+                    <button id="open-refresh-popup-btn" class="icon-btn" aria-label="Refresh Documents" title="Refresh Documents" style="background:none;border:none;cursor:pointer;color:inherit;padding:4px;display:flex;align-items:center;">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M4.681 3H2V2h3.5l.5.5V6H5V4a5 5 0 1 0 4.53 8.36l.334.943A6 6 0 1 1 4.681 3z"/>
+                        </svg>
+                    </button>
+                    <button id="cancel-refresh-btn" class="cancel-refresh-btn" aria-label="Cancel Refresh" title="Cancel Refresh" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:none;border:none;cursor:pointer;color:var(--vscode-button-background);padding:4px;display:none;align-items:center;justify-content:center;font-size:16px;line-height:1;font-weight:bold;">&times;</button>
+                </div>
             </div>
             __REFRESH_POPUP__
             <p class="subtitle">Local Confluence documents</p>

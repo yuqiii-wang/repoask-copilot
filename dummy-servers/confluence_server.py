@@ -93,7 +93,7 @@ async def update_page(page_id: str, request: Request):
     except Exception as e:
         return JSONResponse(status_code=400, content={'message': f'Error updating page: {str(e)}'})
 
-@app.get('/rest/api/content')
+@app.get('/confluence/rest/api/content')
 async def get_all_pages(expand: str = None):
     return JSONResponse(content={'results': list(DUMMY_CONFLUENCE_PAGES.values())})
 

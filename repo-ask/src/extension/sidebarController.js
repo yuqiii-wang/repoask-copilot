@@ -14,7 +14,11 @@ function createSidebarController(deps) {
         documentService,
         readAllMetadata,
         readDocumentContent,
-        deleteDocumentFiles
+        deleteDocumentFiles,
+        writeDocumentFiles,
+        refreshCancelEmitter,
+        setRefreshCanceled,
+        httpManager
     } = deps;
 
     // Create command instances
@@ -137,6 +141,18 @@ function createSidebarController(deps) {
                         } catch (error) {
                             console.error('Error opening document store:', error);
                             vscode.window.showErrorMessage('Failed to open document store directory');
+                        }
+                    }
+
+                    if (message?.command === 'cancelRefresh') {
+                        if (refreshCancelEmitter) {
+                            refreshCancelEmitter.emit('cancel');
+                        }
+                        if (setRefreshCanceled) {
+                            setRefreshCanceled(true);
+                        }
+                        if (httpManager) {
+                            httpManager.cancelAll();
                         }
                     }
                 });

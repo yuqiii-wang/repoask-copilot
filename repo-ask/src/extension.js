@@ -1,4 +1,6 @@
 const vscode = require('vscode');
+const EventEmitter = require('events');
+const { httpManager } = require('./mcp');
 
 const { 
     fetchConfluencePage, 
@@ -41,6 +43,9 @@ function setupExtension(context) {
     const indexStoragePath = ensureIndexStoragePath(context);
     backfillStoredMetadataSchema(storagePath);
 
+    const refreshCancelEmitter = new EventEmitter();
+    let isRefreshCanceled = false;
+
     const documentService = createDocumentService({
         vscode,
         storagePath,
@@ -68,7 +73,11 @@ function setupExtension(context) {
         documentService,
         readAllMetadata,
         readDocumentContent,
-        deleteDocumentFiles
+        deleteDocumentFiles,
+        writeDocumentFiles,
+        refreshCancelEmitter,
+        setRefreshCanceled: (val) => { isRefreshCanceled = val; },
+        httpManager
     });
 
     const lmTools = createLanguageModelTools({
@@ -99,7 +108,10 @@ function setupExtension(context) {
         storagePath,
         readAllMetadata,
         readDocumentContent,
-        writeDocumentFiles
+        writeDocumentFiles,
+        refreshCancelEmitter,
+        setRefreshCanceled: (val) => { isRefreshCanceled = val; },
+        httpManager
     });
 
     let repoAskDocParticipant;

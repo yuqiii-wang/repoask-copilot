@@ -7,6 +7,8 @@ class HttpManager {
         // Retry delays: 10s, 20s, 60s
         this.retryDelays = [10000, 20000, 60000];
         this.timeoutId = null;
+        this.currentAbortController = null;
+        this.isCanceled = false;
     }
 
     request(config) {
@@ -22,8 +24,24 @@ class HttpManager {
         });
     }
 
+    cancelAll() {
+        this.isCanceled = true;
+        if (this.currentAbortController) {
+            this.currentAbortController.abort();
+        }
+        this.queue = [];
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+    }
+
+    resetCancel() {
+        this.isCanceled = false;
+    }
+
     async processNext() {
-        if (this.isProcessing || this.queue.length === 0) return;
+        if (this.isProcessing || this.queue.length === 0 || this.isCanceled) return;
 
         const now = Date.now();
         
@@ -32,7 +50,7 @@ class HttpManager {
 
         if (readyIndex === -1) {
             // No tasks ready yet, schedule the next check
-            if (!this.timeoutId) {
+            if (!this.timeoutId && !this.isCanceled) {
                 const earliestReadyAt = Math.min(...this.queue.map(t => t.readyAt));
                 const waitTime = Math.max(0, earliestReadyAt - now);
                 this.timeoutId = setTimeout(() => {
@@ -55,16 +73,31 @@ class HttpManager {
         const task = this.queue.splice(readyIndex, 1)[0];
 
         try {
-            // Apply infinite limits for large downloads/uploads
+            if (this.isCanceled) {
+                task.reject(new Error('Request canceled'));
+                return;
+            }
+            // Create abort controller for this request
+            this.currentAbortController = new AbortController();
+            // Apply infinite limits for large downloads/uploads and add abort signal
             const actualConfig = {
                 maxContentLength: Infinity,
                 maxBodyLength: Infinity,
-                ...task.config
+                ...task.config,
+                signal: this.currentAbortController.signal
             };
             
             const response = await axios(actualConfig);
+            if (this.isCanceled) {
+                task.reject(new Error('Request canceled'));
+                return;
+            }
             task.resolve(response.data);
         } catch (error) {
+            if (this.isCanceled) {
+                task.reject(new Error('Request canceled'));
+                return;
+            }
             task.failures += 1;
             console.error(`HTTP Request failed (${task.failures}/3) for ${task.config.url}: ${error.message}`);
             
@@ -78,6 +111,8 @@ class HttpManager {
                 task.readyAt = Date.now() + delay;
                 this.queue.push(task);
             }
+        } finally {
+            this.currentAbortController = null;
         }
 
         this.isProcessing = false;

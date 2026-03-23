@@ -1,5 +1,8 @@
 module.exports = function(context) {
-  const { fs, path, vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, fetchJiraIssue, truncate, tokenize, htmlToMarkdown, jiraTextToMarkdown, generateSynonyms, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, rankLocalDocuments,        annotateDocumentByArg, annotateAllDocuments, annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, getKeywordConfig, buildKeywordOnlyIndexText, normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, mergeKeywordsPreservingSignals, appendKeywordsToExisting, writeDocumentPromptFile, formatMetadataEntries, getStoredMetadataById, generateStoredMetadataById, updateStoredMetadataById, removeDocumentFromIndicesById, sanitizeFileSegment, getWorkspaceRootPath, getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, tokenization2bm25 } = context;
+  const { fs, path, vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, 
+    fetchJiraIssue, truncate, tokenize, htmlToMarkdown, jiraTextToMarkdown, generateSynonyms, readAllMetadata, writeDocumentFiles, 
+    readDocumentContent, localizeMarkdownImageLinks, getKeywordConfig, cleanKeywords, mergeKeywordsPreservingSignals, getStoredMetadataById,
+     getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, tokenization2bm25 } = context;
 
 async function refreshDocument(pageArg, options = {}) {
   const page = await fetchConfluencePage(pageArg);

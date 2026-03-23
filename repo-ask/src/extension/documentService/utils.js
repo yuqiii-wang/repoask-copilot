@@ -91,27 +91,21 @@ function extractHtmlTagData(html) {
 }
 
 function resolveSourceUrl(source) {
+  const isJira = source?.key || (source?.fields && source?.fields?.project);
   let candidate = source?.url || source?._links?.webui || source?._links?.self || source?.self || '';
   candidate = String(candidate || '').trim();
 
   if (candidate && !candidate.startsWith('http://') && !candidate.startsWith('https://')) {
-    const isJira = source?.key || (source?.fields && source?.fields?.project);
     const configuration = vscode.workspace.getConfiguration('repoAsk');
-    let base = '';
+    const profile = configuration.get(isJira ? 'jira' : 'confluence');
+    let base = String((profile?.url) || '').replace(/\/$/, '');
     
-    if (isJira) {
-      const jiraProfile = configuration.get('jira');
-      const jiraObjectUrl = jiraProfile && typeof jiraProfile === 'object' ? jiraProfile.url : undefined;
-      base = String(jiraObjectUrl || '').replace(/\/$/, '');
-    } else {
-      const confProfile = configuration.get('confluence');
-      const confObjectUrl = confProfile && typeof confProfile === 'object' ? confProfile.url : undefined;
-      base = String(confObjectUrl || '').replace(/\/$/, '');
+    if (!candidate.startsWith('/')) candidate = '/' + candidate;
+    
+    if (!isJira && !base.toLowerCase().includes('/confluence') && !candidate.toLowerCase().startsWith('/confluence/')) {
+      candidate = '/confluence' + candidate;
     }
-
-    if (!candidate.startsWith('/')) {
-      candidate = '/' + candidate;
-    }
+    
     candidate = base + candidate;
   }
   

@@ -13,12 +13,13 @@
                 syncStatusEl.classList.toggle('loading', isDownloadingFromSource);
             }
             const refreshIconBtn = document.getElementById('open-refresh-popup-btn');
+            const cancelRefreshBtn = document.getElementById('cancel-refresh-btn');
             if (refreshIconBtn) {
                 if (isDownloadingFromSource) {
                     refreshIconBtn.classList.add('is-spinning');
                     refreshIconBtn.disabled = true;
-                    refreshIconBtn.style.opacity = '0.5';
-                    refreshIconBtn.style.cursor = 'not-allowed';
+                    refreshIconBtn.style.opacity = '1';
+                    refreshIconBtn.style.cursor = 'default';
                     refreshIconBtn.title = 'Refresh in progress...';
                 } else {
                     refreshIconBtn.classList.remove('is-spinning');
@@ -28,6 +29,31 @@
                     refreshIconBtn.title = 'Refresh Documents';
                 }
             }
+            if (cancelRefreshBtn) {
+                if (isDownloadingFromSource) {
+                    cancelRefreshBtn.style.display = 'none';
+                    cancelRefreshBtn.parentElement.addEventListener('mouseenter', showCancelBtn);
+                    cancelRefreshBtn.parentElement.addEventListener('mouseleave', hideCancelBtn);
+                } else {
+                    cancelRefreshBtn.style.display = 'none';
+                    cancelRefreshBtn.parentElement.removeEventListener('mouseenter', showCancelBtn);
+                    cancelRefreshBtn.parentElement.removeEventListener('mouseleave', hideCancelBtn);
+                }
+            }
+        }
+
+        function showCancelBtn() {
+            const cancelRefreshBtn = document.getElementById('cancel-refresh-btn');
+            const refreshIconBtn = document.getElementById('open-refresh-popup-btn');
+            if (cancelRefreshBtn) cancelRefreshBtn.style.display = 'flex';
+            if (refreshIconBtn) refreshIconBtn.style.opacity = '0';
+        }
+
+        function hideCancelBtn() {
+            const cancelRefreshBtn = document.getElementById('cancel-refresh-btn');
+            const refreshIconBtn = document.getElementById('open-refresh-popup-btn');
+            if (cancelRefreshBtn) cancelRefreshBtn.style.display = 'none';
+            if (refreshIconBtn) refreshIconBtn.style.opacity = '1';
         }
 
         function renderSyncError(message) {
@@ -132,6 +158,13 @@
         
         if (searchTypeFilterEl) {
             searchTypeFilterEl.addEventListener('change', triggerSearch);
+        }
+
+        const cancelRefreshBtn = document.getElementById('cancel-refresh-btn');
+        if (cancelRefreshBtn) {
+            cancelRefreshBtn.addEventListener('click', () => {
+                vscode.postMessage({ command: 'cancelRefresh' });
+            });
         }
 
         window.addEventListener('message', event => {

@@ -7,8 +7,8 @@
 
 const confluenceApiMap = {
     contentResolve: (base, candidate) => `${base}/confluence/rest/api/content/${encodeURIComponent(candidate)}`,
-    contentStorage: (base, candidate) => `${base}/confluence/rest/api/content/${encodeURIComponent(candidate)}?expand=body.storage`,
-    contentAll: (base) => `${base}/rest/api/content?expand=body.storage`,
+    contentStorage: (base, candidate) => `${base}/confluence/rest/api/content/${encodeURIComponent(candidate)}?expand=body.storage,version`,
+    contentAll: (base) => `${base}/confluence/rest/api/content?expand=body.storage`,
     contentChildren: (base, pageId) => `${base}/confluence/rest/api/content/${encodeURIComponent(pageId)}/child/page?expand=body.storage`,
     contentUpdate: (base, pageId) => `${base}/confluence/rest/api/content/${encodeURIComponent(pageId)}`,
     contentCreate: (base) => `${base}/confluence/rest/api/content`
