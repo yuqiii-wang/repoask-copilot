@@ -1,17 +1,17 @@
 module.exports = function(context) {
   const { fs, path, vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, 
     fetchJiraIssue, truncate, tokenize, htmlToMarkdown, jiraTextToMarkdown, generateSynonyms, readAllMetadata, writeDocumentFiles, 
-    readDocumentContent, localizeMarkdownImageLinks, getKeywordConfig, cleanKeywords, mergeKeywordsPreservingSignals, getStoredMetadataById,
-     getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, tokenization2bm25 } = context;
+    readDocumentContent, localizeMarkdownImageLinks, getKeywordConfig, cleanKeywords, getStoredMetadataById,
+    getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, tokenization2bm25,
+    buildCategorizedKeywords, normalizeCategorizedKeywords, flattenCategorizedKeywords } = context;
   const { extractMermaidKeywords } = require('../tools/llm');
   const { extractMdKeywords } = require('./md2keywords');
-  const { tokenize: tokenizeKeywords } = require('./tokenization2keywords');
 
   // Builds structural keywords from document content + title.
   // Used by both processDocument/processJiraIssue (initial sync) and finalizeBm25KeywordsForDocuments (BM25 refresh).
   function buildStructuralKeywords(docText, title) {
     const mdKeywords = extractMdKeywords(String(docText || ''));
-    const titleKeywords = tokenizeKeywords(String(title || ''));
+    const titleKeywords = tokenize(String(title || ''));
     return [...titleKeywords, ...mdKeywords];
   }
 
@@ -91,38 +91,33 @@ async function processDocument(page) {
   const sourceUrl = resolveSourceUrl(page);
   const markdownBaseContent = isHtmlContent ? htmlToMarkdown(rawContent) : String(rawContent || '').trim();
   const markdownContent = await localizeMarkdownImageLinks(markdownBaseContent, page.id, sourceUrl);
-  
-  const keywordConfig = getKeywordConfig();
+
   const title = htmlTagData.title || page.title;
-  const titleKeywords = tokenizeKeywords(title);
-  const mdKeywords = extractMdKeywords(markdownContent);
-  const lexicalKeywords = tokenizeKeywords(markdownContent);
-  const mergedKeywords = mergeKeywordsPreservingSignals({
-    structuralKeywords: [...titleKeywords, ...mdKeywords],
-    lexicalKeywords: lexicalKeywords,
-    limit: keywordConfig.DEFAULT_KEYWORD_LIMIT
-  });
-  
+  const existingSummary = String(existingMetadata.summary || '').trim();
+  const kgMermaid = typeof existingMetadata.knowledgeGraph === 'string' ? existingMetadata.knowledgeGraph : '';
+
+  const categorizedKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, { kgMermaid });
+
   const baseMetadata = {
     id: page.id,
-    title: htmlTagData.title || page.title,
+    title,
     author: page.author || 'Unknown',
     last_updated: page.last_updated || new Date().toISOString().slice(0, 10),
     parent_confluence_topic: page.parent_confluence_topic || page.space || 'General',
     url: sourceUrl,
     type: 'confluence',
-    keywords: mergedKeywords,
-    synonyms: cleanKeywords(generateSynonyms(mergedKeywords), 80),
+    keywords: categorizedKeywords,
+    synonyms: cleanKeywords(generateSynonyms(flattenCategorizedKeywords(categorizedKeywords)), 80),
     summary: '',
     tags: Array.isArray(existingMetadata.tags) ? existingMetadata.tags : [],
     feedback: String(existingMetadata.feedback || '').trim(),
     referencedQueries: Array.isArray(existingMetadata.referencedQueries) ? existingMetadata.referencedQueries : [],
-    knowledgeGraph: typeof existingMetadata.knowledgeGraph === 'string' ? existingMetadata.knowledgeGraph : ''
+    knowledgeGraph: kgMermaid
   };
   const metadata = {
     ...existingMetadata,
     ...baseMetadata,
-    summary: String(existingMetadata.summary || '').trim()
+    summary: existingSummary
   };
   writeDocumentFiles(storagePath, page.id, markdownContent, metadata);
   return metadata;
@@ -152,17 +147,12 @@ async function processJiraIssue(issue) {
   const title = htmlTitle || (issueKey && summary ? `${issueKey}: ${summary}` : issueKey || summary || `Issue ${issue?.id || ''}`.trim());
   const contentSections = [`# ${title}`, '', `Issue Key: ${issueKey || '-'}`, `Issue ID: ${issue?.id || '-'}`, `Project: ${projectKey}`, `Type: ${fields?.issuetype?.name || '-'}`, `Status: ${fields?.status?.name || '-'}`, `Priority: ${fields?.priority?.name || '-'}`, `Reporter: ${reporter}`, `Assignee: ${fields?.assignee?.displayName || '-'}`, `Updated: ${fields?.updated || '-'}`, '', '## Description', description || 'No description provided.'];
   const markdownContent = await localizeMarkdownImageLinks(contentSections.join('\n'), issue?.id, resolveSourceUrl(issue));
-  
-  const keywordConfig = getKeywordConfig();
-  const titleKeywords = tokenizeKeywords(title);
-  const mdKeywords = extractMdKeywords(markdownContent);
-  const lexicalKeywords = tokenizeKeywords(markdownContent);
-  const mergedKeywords = mergeKeywordsPreservingSignals({
-    structuralKeywords: [...titleKeywords, ...mdKeywords],
-    lexicalKeywords: lexicalKeywords,
-    limit: keywordConfig.DEFAULT_KEYWORD_LIMIT
-  });
-  
+
+  const existingSummary = String(existingMetadata.summary || '').trim();
+  const kgMermaid = typeof existingMetadata.knowledgeGraph === 'string' ? existingMetadata.knowledgeGraph : '';
+
+  const categorizedKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, { kgMermaid });
+
   const baseMetadata = {
     id: issue?.id,
     title,
@@ -171,18 +161,18 @@ async function processJiraIssue(issue) {
     parent_confluence_topic: `Jira ${projectKey}`,
     url: resolveSourceUrl(issue),
     type: 'jira',
-    keywords: mergedKeywords,
-    synonyms: cleanKeywords(generateSynonyms(mergedKeywords), 80),
+    keywords: categorizedKeywords,
+    synonyms: cleanKeywords(generateSynonyms(flattenCategorizedKeywords(categorizedKeywords)), 80),
     summary: '',
     tags: Array.isArray(existingMetadata.tags) ? existingMetadata.tags : [],
     feedback: String(existingMetadata.feedback || '').trim(),
     referencedQueries: Array.isArray(existingMetadata.referencedQueries) ? existingMetadata.referencedQueries : [],
-    knowledgeGraph: typeof existingMetadata.knowledgeGraph === 'string' ? existingMetadata.knowledgeGraph : ''
+    knowledgeGraph: kgMermaid
   };
   const metadata = {
     ...existingMetadata,
     ...baseMetadata,
-    summary: String(existingMetadata.summary || '').trim()
+    summary: existingSummary
   };
   writeDocumentFiles(storagePath, issue?.id, markdownContent, metadata);
   return metadata;
@@ -228,7 +218,6 @@ async function finalizeBm25KeywordsForDocuments(docIds = []) {
 
   const idfMap = new Map();
   for (const [token, df] of dfMap.entries()) {
-    // Standard IDF formula
     const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
     idfMap.set(token, idf);
   }
@@ -258,35 +247,27 @@ async function finalizeBm25KeywordsForDocuments(docIds = []) {
     scores.sort((a, b) => b.score - a.score);
     const bm25Keywords = scores.slice(0, topN).map(x => x.token);
 
-    // 3. Find the metadata for this doc first
+    // 3. Rebuild categorized keywords with BM25 tokens filling the content category
     const metaIndex = metadataList.findIndex(m => m.id === docId);
     if (metaIndex >= 0) {
       const meta = metadataList[metaIndex];
-      
-      // 4. On top of BM25 keywords, generate markdown syntax keywords and also extract title keywords
-      const mdKeywords = extractMdKeywords(docText);
-      const titleKeywords = tokenizeKeywords(meta.title);
-
-      // 5. Merge BM25 keywords (primary) with title + markdown keywords (secondary)
-      meta.keywords = mergeKeywordsPreservingSignals({
-        structuralKeywords: [...titleKeywords, ...mdKeywords], 
-        modelKeywords: bm25Keywords,
-        limit: keywordConfig.DEFAULT_KEYWORD_LIMIT
-      });
-
-      // 5b. Merge knowledge graph entity keywords if present
       const kgMermaid = typeof meta.knowledgeGraph === 'string' ? meta.knowledgeGraph : '';
-      if (kgMermaid) {
-        const mermaidKws = extractMermaidKeywords(kgMermaid);
-        for (const mkw of mermaidKws) {
-          if (!meta.keywords.includes(mkw)) {
-            meta.keywords.push(mkw);
-          }
-        }
+      const existingSummary = String(meta.summary || '').trim();
+
+      meta.keywords = buildCategorizedKeywords(
+        meta.title,
+        existingSummary,
+        docText,
+        { bm25Keywords, kgMermaid }
+      );
+
+      // If there are annotation semantic keywords, preserve them
+      const existingKw = normalizeCategorizedKeywords(meta.keywords);
+      if (Array.isArray(existingKw.semantic) && existingKw.semantic.length > 0) {
+        meta.keywords.semantic = existingKw.semantic;
       }
 
-      // Generate synonyms from the merged keywords (unchanged)
-      meta.synonyms = cleanKeywords(generateSynonyms(meta.keywords), 80);
+      meta.synonyms = cleanKeywords(generateSynonyms(flattenCategorizedKeywords(meta.keywords)), 80);
       writeDocumentFiles(storagePath, meta.id, docText, meta);
     }
   }

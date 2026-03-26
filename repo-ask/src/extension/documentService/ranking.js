@@ -1,9 +1,10 @@
 module.exports = function(context) {
-  const { vscode, storagePath, truncate, tokenize, readAllMetadata, readDocumentContent, normalizeMetadataKeywordFields,  } = context;
+  const { vscode, storagePath, truncate, tokenize, readAllMetadata, readDocumentContent, normalizeMetadataKeywordFields, normalizeCategorizedKeywords, flattenCategorizedKeywords } = context;
+  // Use keyword tokenizer for n-gram query expansion (supports includeNGrams options)
+  const { tokenize: kwTokenize } = require('./tokenization2keywords');
 
-// Default cutoff ratio — kept low so the multiplicative scoring spread doesn't
-// eliminate valid single-signal matches.  Final cap is always maxSearchResults.
-const DEFAULT_TOP_SCORE_THRESHOLD_RATIO = 0.1;
+// Default cutoff ratio — docs scoring below this fraction of the top score are removed.
+const DEFAULT_TOP_SCORE_THRESHOLD_RATIO = 0.3;
 
 // ---------------------------------------------------------------------------
 // Knowledge-graph helpers
@@ -58,11 +59,12 @@ function buildKnowledgeGraphIndex(metadataList) {
     const docId = String(metadata.id);
     const entities = extractMermaidEntities(metadata.knowledgeGraph || '');
 
-    // Also index title tokens and keyword tokens as "virtual" KG entities so
-    // that docs without an explicit Mermaid graph still participate in traversal.
+    // Index title tokens as virtual KG entities
     tokenize(String(metadata.title || '')).forEach(t => entities.add(t));
-    const kwList = Array.isArray(metadata.keywords) ? metadata.keywords : [];
-    kwList.forEach(kw => tokenize(String(kw)).forEach(t => entities.add(t)));
+
+    // Flatten categorized keywords and index all tokens as virtual KG entities
+    const flatKws = flattenCategorizedKeywords(metadata.keywords);
+    flatKws.forEach(kw => tokenize(String(kw)).forEach(t => entities.add(t)));
 
     docIdToEntities.set(docId, entities);
     for (const entity of entities) {
@@ -166,7 +168,7 @@ function applyReferencedQueryNeighborBoost(scoredDocs, allMetadata, lowerQuerySt
   const NEIGHBOR_BOOST_RATIO = 0.12; // fraction of anchor score granted to keyword neighbor
 
   for (const anchor of referenceAnchors) {
-    const anchorKws = new Set((Array.isArray(anchor.keywords) ? anchor.keywords : []).map(k => String(k).toLowerCase()));
+    const anchorKws = new Set(flattenCategorizedKeywords(anchor.keywords));
     const anchorTags = new Set((Array.isArray(anchor.tags) ? anchor.tags : []).map(t => String(t).toLowerCase()));
     const anchorTopic = String(anchor.parent_confluence_topic || '').toLowerCase();
 
@@ -174,7 +176,7 @@ function applyReferencedQueryNeighborBoost(scoredDocs, allMetadata, lowerQuerySt
       const mId = String(meta.id);
       if (mId === String(anchor.id)) continue;
 
-      const metaKws = (Array.isArray(meta.keywords) ? meta.keywords : []).map(k => String(k).toLowerCase());
+      const metaKws = flattenCategorizedKeywords(meta.keywords);
       const metaTags = (Array.isArray(meta.tags) ? meta.tags : []).map(t => String(t).toLowerCase());
       const metaTopic = String(meta.parent_confluence_topic || '').toLowerCase();
 
@@ -233,8 +235,9 @@ function rankLocalDocuments(query, limit = 20) {
   const lowerQueryStr = (query || '').toLowerCase().trim();
   const queryTermsArray = typeof tokenize === 'function' ? tokenize(lowerQueryStr) : lowerQueryStr.split(/\s+/).filter(t => t.length > 0);
   let queryNGrams = [];
-  if (typeof tokenize === 'function') {
-      const allTokens = tokenize(query, { includeNGrams: true, nGramMax: 3 });
+  if (typeof kwTokenize === 'function') {
+      // kwTokenize honours includeNGrams so multi-word phrases are actually generated
+      const allTokens = kwTokenize(lowerQueryStr, { includeNGrams: true, nGramMin: 2, nGramMax: 3 });
       queryNGrams = allTokens.filter(t => typeof t === 'string' && t.includes(' '));
   }
 
@@ -287,20 +290,20 @@ function rankLocalDocuments(query, limit = 20) {
     let hasMatch = false;
     const mId = String(metadata.id || '').toLowerCase();
     const mTitle = String(metadata.title || '').toLowerCase();
-    const mSummary = String(metadata.summary || '').toLowerCase();
-    const mContent = String(readDocumentContent(storagePath, metadata.id) || '').toLowerCase();
-    const mKeywords = [...(Array.isArray(metadata.keywords) ? metadata.keywords : []), ...(Array.isArray(metadata.synonyms) ? metadata.synonyms : [])].map(k => String(k).toLowerCase());
     const mTags = Array.isArray(metadata.tags) ? metadata.tags.map(t => String(t).toLowerCase()) : [];
     const mType = String(metadata.type || '').toLowerCase();
     const mReferencedQueries = Array.isArray(metadata.referencedQueries) ? metadata.referencedQueries.map(q => String(q).toLowerCase()) : [];
     const mUrl = String(metadata.url || '').toLowerCase();
 
+    // Normalize categorized keyword structure (handles legacy flat arrays gracefully)
+    const mKw = normalizeCategorizedKeywords(metadata.keywords);
+    const mSynonyms = Array.isArray(metadata.synonyms) ? metadata.synonyms.map(s => String(s).toLowerCase()) : [];
+
     // -- Exact ID / Jira / Confluence anchors (additive + anchor multiplier) --
     for (const jiraId of jiraIds) {
       const jiraIdLower = jiraId.toLowerCase();
-      if (mId.includes(jiraIdLower) || mTitle.includes(jiraIdLower) || mSummary.includes(jiraIdLower) || 
-          mContent.includes(jiraIdLower) || mKeywords.some(k => k.includes(jiraIdLower)) ||
-          mUrl.includes(jiraIdLower)) {
+      if (mId.includes(jiraIdLower) || mTitle.includes(jiraIdLower) || mUrl.includes(jiraIdLower) ||
+          mKw.content['1gram'].includes(jiraIdLower) || mKw.summary['1gram'].includes(jiraIdLower)) {
         anchorMultiplier = Math.max(anchorMultiplier, 2.0);
         hasMatch = true;
         explicitMatchIds.add(String(metadata.id));
@@ -324,52 +327,77 @@ function rankLocalDocuments(query, limit = 20) {
       }
     }
 
-    // -- Whole-query field matches (additive) --
+    // -- Whole-query field matches (additive, exact match per category) --
     if (lowerQueryStr) {
-      if (mId.includes(lowerQueryStr)) { score += (WHOLE_QUERY_WEIGHTS.id || 15); hasMatch = true; }
-      if (mTitle.includes(lowerQueryStr)) { score += (WHOLE_QUERY_WEIGHTS.title || 10); hasMatch = true; }
-      if (mKeywords.some(k => k.includes(lowerQueryStr))) { score += (WHOLE_QUERY_WEIGHTS.keywords || 8); hasMatch = true; }
-      if (mTags.some(t => t.includes(lowerQueryStr))) { score += (WHOLE_QUERY_WEIGHTS.tags || 6); hasMatch = true; }
-      if (mType.includes(lowerQueryStr)) { score += (WHOLE_QUERY_WEIGHTS.type || 4); hasMatch = true; }
+      if (mId.includes(lowerQueryStr)) { score += (WHOLE_QUERY_WEIGHTS.id || 50); hasMatch = true; }
+
+      // Title: exact membership in any ngram bucket
+      if (mKw.title['1gram'].includes(lowerQueryStr) ||
+          mKw.title['2gram'].includes(lowerQueryStr) ||
+          mKw.title['3gram'].includes(lowerQueryStr)) {
+        score += (WHOLE_QUERY_WEIGHTS.title || 35); hasMatch = true;
+      }
+
+      // Content: check all ngram buckets (whole query may be multi-word)
+      const queryWordCount = lowerQueryStr.split(/\s+/).filter(Boolean).length;
+      const queryNgramKey = `${Math.min(queryWordCount, 4)}gram`;
+      if (mKw.content['1gram'].includes(lowerQueryStr) ||
+          (queryWordCount > 1 && mKw.content[queryNgramKey] && mKw.content[queryNgramKey].includes(lowerQueryStr)) ||
+          mKw.knowledge_graph.includes(lowerQueryStr) ||
+          mKw.semantic.includes(lowerQueryStr) ||
+          mSynonyms.includes(lowerQueryStr)) {
+        score += (WHOLE_QUERY_WEIGHTS.keywords || 8); hasMatch = true;
+      }
+
+      if (mTags.includes(lowerQueryStr)) { score += (WHOLE_QUERY_WEIGHTS.tags || 6); hasMatch = true; }
+      if (mType === lowerQueryStr) { score += (WHOLE_QUERY_WEIGHTS.type || 4); hasMatch = true; }
 
       const hasExactReferencedQueryMatch = mReferencedQueries.some(q => q === lowerQueryStr);
       const hasPartialReferencedQueryMatch = !hasExactReferencedQueryMatch && mReferencedQueries.some(q => q.includes(lowerQueryStr));
       if (hasExactReferencedQueryMatch) {
-        score += (WHOLE_QUERY_WEIGHTS.referencedExact || 28); hasMatch = true;
+        score += (WHOLE_QUERY_WEIGHTS.referencedExact || 40); hasMatch = true;
       } else if (hasPartialReferencedQueryMatch) {
         score += (WHOLE_QUERY_WEIGHTS.referencedPartial || 20); hasMatch = true;
       }
     }
 
-    // -- Per-term field matches (additive for each term hit) --
+    // -- Per-term field matches (additive, exact match per category) --
     if (queryTermsArray.length > 0) {
       for (const term of queryTermsArray) {
         if (mId.includes(term)) { score += (TERM_WEIGHTS.id || 3); hasMatch = true; }
-        if (mTitle.includes(term)) { score += (TERM_WEIGHTS.title || 2); hasMatch = true; }
-        if (mSummary.includes(term)) { score += ((TERM_WEIGHTS.title || 2) * 0.5 + 0.5); hasMatch = true; }
-        if (mKeywords.some(k => k.includes(term))) { score += (TERM_WEIGHTS.keywords || 1.5); hasMatch = true; }
-        if (mTags.some(t => t.includes(term))) { score += (TERM_WEIGHTS.tags || 1.2); hasMatch = true; }
-        if (mType.includes(term)) { score += (TERM_WEIGHTS.type || 1); hasMatch = true; }
+        if (mKw.title['1gram'].includes(term)) { score += (TERM_WEIGHTS.title || 5); hasMatch = true; }
+        if (mKw.summary['1gram'].includes(term)) { score += ((TERM_WEIGHTS.title || 5) * 0.5 + 0.5); hasMatch = true; }
+        if (mKw.content['1gram'].includes(term) ||
+            mKw.knowledge_graph.includes(term) ||
+            mKw.semantic.includes(term) ||
+            mSynonyms.includes(term)) {
+          score += (TERM_WEIGHTS.keywords || 1.5); hasMatch = true;
+        }
+        if (mTags.includes(term)) { score += (TERM_WEIGHTS.tags || 1.2); hasMatch = true; }
+        if (mType === term) { score += (TERM_WEIGHTS.type || 1); hasMatch = true; }
         if (mReferencedQueries.some(q => q.includes(term))) { score += (TERM_WEIGHTS.referenced || 4); hasMatch = true; }
       }
     }
-    
-    // -- N-gram matches (BM25-weighted, additive) --
+
+    // -- N-gram matches (multiplicative per NGRAM_WEIGHTS) --
     if (queryNGrams.length > 0) {
+      let ngramMultiplier = 1.0;
       for (const ngram of queryNGrams) {
         const nGramLength = ngram.split(/\s+/).length || 1;
         const nGramKey = `${nGramLength}gram`;
-        const bm25Weight = BM25_NGRAM_WEIGHTS[nGramKey] || 1.0;
-        
-        if (mTitle.includes(ngram)) { score += ((NGRAM_WEIGHTS.title || 6) * nGramLength); hasMatch = true; }
-        if (mSummary.includes(ngram)) { score += ((NGRAM_WEIGHTS.summary || 2) * nGramLength); hasMatch = true; }
-        if (mContent.includes(ngram)) { score += ((NGRAM_WEIGHTS.content || 4) * nGramLength); hasMatch = true; }
-        
-        // Exact ngram keyword match
-        if (mKeywords.some(keyword => keyword === ngram)) {
-          score += (bm25Weight * 1.5);
-          hasMatch = true;
+
+        if (mKw.title[nGramKey] && mKw.title[nGramKey].includes(ngram)) {
+          ngramMultiplier *= (1 + (NGRAM_WEIGHTS.title || 12) * nGramLength * 0.1); hasMatch = true;
         }
+        if (mKw.summary[nGramKey] && mKw.summary[nGramKey].includes(ngram)) {
+          ngramMultiplier *= (1 + (NGRAM_WEIGHTS.summary || 2) * nGramLength * 0.1); hasMatch = true;
+        }
+        if (mKw.content[nGramKey] && mKw.content[nGramKey].includes(ngram)) {
+          ngramMultiplier *= (1 + (NGRAM_WEIGHTS.content || 4) * nGramLength * 0.1); hasMatch = true;
+        }
+      }
+      if (ngramMultiplier > 1.0) {
+        score = (score > 0 ? score : 1) * ngramMultiplier;
       }
     }
 
@@ -505,8 +533,8 @@ function groupRelatedDocuments(documents, maxToOrder) {
         const currentId = String(currentDoc.id);
         if (used.has(currentId)) continue;
 
-        const sharedKeywords = (Array.isArray(currentDoc.keywords) ? currentDoc.keywords : [])
-          .filter(k => (Array.isArray(anchorDoc.keywords) ? anchorDoc.keywords : []).includes(k));
+        const sharedKeywords = flattenCategorizedKeywords(currentDoc.keywords)
+          .filter(k => flattenCategorizedKeywords(anchorDoc.keywords).includes(k));
         const sharedTags = (Array.isArray(currentDoc.tags) ? currentDoc.tags : [])
           .filter(t => (Array.isArray(anchorDoc.tags) ? anchorDoc.tags : []).includes(t));
         const sameParent = currentDoc.parent_confluence_topic &&

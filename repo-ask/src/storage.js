@@ -142,7 +142,9 @@ function normalizeStoredMetadataSchema(docId, metadata) {
     return {
         ...base,
         id: base.id !== undefined && base.id !== null ? base.id : pageIdToId(docId),
-        keywords: Array.isArray(base.keywords) ? base.keywords : [],
+        keywords: (base.keywords && typeof base.keywords === 'object' && !Array.isArray(base.keywords))
+            ? base.keywords
+            : (Array.isArray(base.keywords) ? base.keywords : {}),
         synonyms: Array.isArray(base.synonyms) ? base.synonyms : [],
         tags: Array.isArray(base.tags) ? base.tags : [],
         referencedQueries: normalizedReferencedQueries,

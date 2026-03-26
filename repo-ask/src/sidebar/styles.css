@@ -140,6 +140,19 @@ body {
     line-height: 1.3;
 }
 
+.doc-score {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 0.72em;
+    font-weight: 500;
+    border-radius: 3px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    vertical-align: middle;
+    opacity: 0.8;
+}
+
 .doc-open-btn {
     flex: 1;
     border: none;

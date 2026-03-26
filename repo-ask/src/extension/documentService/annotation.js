@@ -1,5 +1,5 @@
 module.exports = function(context) {
-  const { vscode, storagePath, fetchConfluencePage, truncate, tokenize, generateSynonyms, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, getKeywordConfig, buildKeywordOnlyIndexText, cleanKeywords, normalizeMetadataKeywordFields, appendKeywordsToExisting, extractJsonObject } = context;
+  const { vscode, storagePath, fetchConfluencePage, truncate, tokenize, generateSynonyms, generateSummary, readAllMetadata, writeDocumentFiles, readDocumentContent, getKeywordConfig, buildKeywordOnlyIndexText, cleanKeywords, normalizeMetadataKeywordFields, appendKeywordsToExisting, extractJsonObject, flattenCategorizedKeywords, mergeSemanticKeywords } = context;
 
 async function annotateDocumentByArg(pageArg) {
   const allMetadata = readAllMetadata(storagePath);
@@ -45,7 +45,7 @@ async function annotateAllDocuments() {
 }
 
 async function generateAnnotationWithLlm(metadata, content) {
-  const originalKeywords = cleanKeywords(metadata?.keywords);
+  const originalKeywords = cleanKeywords(flattenCategorizedKeywords(metadata?.keywords));
   const tokenizationSource = [metadata?.title || '', content || ''].filter(Boolean).join('\n');
   const fallbackKeywords = tokenize(tokenizationSource);
   const fallbackSummary = generateSummary(content);
@@ -129,9 +129,11 @@ async function annotateStoredDocument(metadata) {
     return false;
   }
   const annotation = await generateAnnotationWithLlm(metadata, content);
+  // Preserve all categorized keyword categories; place LLM keywords in `semantic`
+  const semanticKeywords = cleanKeywords(annotation.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
   const updatedMetadata = normalizeMetadataKeywordFields({
     ...metadata,
-    keywords: cleanKeywords(annotation.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT),
+    keywords: mergeSemanticKeywords(metadata.keywords, semanticKeywords),
     summary: annotation.summary
   });
   writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);

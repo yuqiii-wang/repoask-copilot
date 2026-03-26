@@ -90,8 +90,14 @@ module.exports = function registerDocCheckTool(deps) {
                                 content = `${topPart}\n......\n${middlePart}\n......\n${bottomPart}\n\n[Note]: This is partial content. If the partial content is likely related to user query, MUST read full content. To read full content, instruct LLM to use mode 'content' to read full content.`;
                             }
                             result.content = content;
+                            if (m.knowledgeGraph) {
+                                result.knowledgeGraph = m.knowledgeGraph;
+                            }
                             summaryLines.push(`Doc [${m.id}] ${m.title}:`);
                             summaryLines.push(content);
+                            if (m.knowledgeGraph) {
+                                summaryLines.push(`\nKnowledge Graph:\n${m.knowledgeGraph}`);
+                            }
                             summaryLines.push('');
                         }
                     }

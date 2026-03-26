@@ -55,11 +55,15 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
             if (results.length > 0) {
                 topDocFromSearch = results[0];
             }
-            initialRankedContext = 'Found the following relevant documents:\n' + results.map(doc => 
-                `- ID: ${doc.id} | Title: ${doc.title} | URL: ${doc.url} | Summary: ${doc.summary}`
-            ).join('\n');
+            initialRankedContext = 'Found the following relevant documents:\n' + results.map((doc, i) => {
+                const score = typeof ranked[i]?.score === 'number' ? ` | Score: ${Math.round(ranked[i].score * 10) / 10}` : '';
+                return `- ID: ${doc.id} | Title: ${doc.title} | URL: ${doc.url} | Summary: ${doc.summary}${score}`;
+            }).join('\n');
             
-            const lines = results.map(item => `- [${item.title}](${item.url})`);
+            const lines = results.map((item, i) => {
+                const score = typeof ranked[i]?.score === 'number' ? ` — match score: ${Math.round(ranked[i].score * 10) / 10}` : '';
+                return `- [${item.title}](${item.url})${score}`;
+            });
             const internalThinking = `\n\n<details>\n<summary>Used ${results.length} references from ranking</summary>\n\n${lines.join('\n')}\n</details>`;
             response.markdown(internalThinking + '\n\n');
         }
