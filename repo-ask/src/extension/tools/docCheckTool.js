@@ -69,9 +69,10 @@ module.exports = function registerDocCheckTool(deps) {
                             if (m.knowledgeGraph) summaryLines.push(`  Knowledge Graph:\n${m.knowledgeGraph}`);
                             summaryLines.push('');
                         } else if (mode === 'metadata.summary') {
-                            result.metadata = { summary: m.summary };
+                            result.metadata = { summary: m.summary, knowledgeGraph: m.knowledgeGraph };
                             summaryLines.push(`- [${m.id}] ${m.title}`);
                             if (m.summary) summaryLines.push(`  Summary: ${m.summary}`);
+                            if (m.knowledgeGraph) summaryLines.push(`  Knowledge Graph:\n${m.knowledgeGraph}`);
                             summaryLines.push('');
                         } else if (mode === 'metadata.id') {
                             result.metadata = { id: m.id, title: m.title };

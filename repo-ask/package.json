@@ -119,6 +119,11 @@
           "default": 5,
           "description": "Maximum number of documents to return from a ranked search. Acts as the hard cap after scoring, cutoff, and knowledge graph traversal."
         },
+        "repoAsk.topScoreThresholdRatio": {
+          "type": "number",
+          "default": 0.3,
+          "description": "Score threshold ratio for filtering ranked documents. Documents scoring below this fraction of the top score are removed. Range: 0.0–1.0. Lower values keep more documents; higher values are stricter."
+        },
         "repoAsk.logActionConfluenceUrl": {
           "type": "string",
           "default": "",

@@ -108,7 +108,63 @@ function extractMdKeywords(text) {
         }
         splitTokens.forEach(token => tokens.push(token));
     }
-    
+
+    // ── Structural identifiers from the full document ────────────────────────
+    // These MUST always be present as content keywords, regardless of BM25.
+
+    // 1. camelCase / PascalCase identifiers → split at case boundaries
+    {
+        const re = /[a-zA-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)+/g;
+        let m;
+        while ((m = re.exec(rawText)) !== null) {
+            const rawParts = m[0]
+                .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+                .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+                .toLowerCase()
+                .split(/\s+/)
+                .filter(p => p.length > 0);
+            if (rawParts.length >= 2) {
+                tokens.push(rawParts.join(' '));
+                rawParts.filter(p => p.length > 2 && !STOP_WORDS.has(p)).forEach(p => tokens.push(p));
+            }
+        }
+    }
+
+    // 2. snake_case / SCREAMING_SNAKE identifiers → split on underscores
+    {
+        const re = /[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+/g;
+        let m;
+        while ((m = re.exec(rawText)) !== null) {
+            const rawParts = m[0].toLowerCase().split('_').filter(p => p.length > 0);
+            if (rawParts.length >= 2) {
+                tokens.push(rawParts.join(' '));
+                rawParts.filter(p => p.length > 2 && !STOP_WORDS.has(p)).forEach(p => tokens.push(p));
+            }
+        }
+    }
+
+    // 3. Capital word sequences: "Trade Management System", "HTTP Request Body"
+    {
+        const re = /(?:^|[\s([{"'>-])([A-Z][A-Za-z0-9]*(?:[ -][A-Z][A-Za-z0-9]*)+)/gm;
+        let m;
+        while ((m = re.exec(rawText)) !== null) {
+            const seq = m[1].trim();
+            const lower = seq.toLowerCase().replace(/-/g, ' ');
+            tokens.push(lower);
+            lower.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w)).forEach(w => tokens.push(w));
+        }
+    }
+
+    // 4. ALL-CAPS acronyms not already captured (HTTP, API, JWT, FX, etc.)
+    {
+        const re = /\b([A-Z]{2,10})\b/g;
+        let m;
+        while ((m = re.exec(rawText)) !== null) {
+            const ac = m[1].toLowerCase();
+            if (!STOP_WORDS.has(ac)) tokens.push(ac);
+        }
+    }
+
     return [...new Set(tokens)];
 }
 

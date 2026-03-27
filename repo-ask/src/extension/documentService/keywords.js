@@ -201,10 +201,22 @@ function buildCategorizedKeywords(title, summaryText, markdownContent, opts = {}
   const summaryTokens = kwTokenize(String(summaryText || ''), { includeNGrams: true, nGramMin: 1, nGramMax: 2 });
   const summaryBySize = groupByNgramSize(summaryTokens, 2);
 
-  // Content: structural MD keywords as initial 1grams; BM25 fills all sizes
+  // Content: ensure two parts — structural MD keywords + BM25 ngrams over ALL tokens
   const mdKeywords = extractMdKeywords(String(markdownContent || ''));
   const mdBySize = groupByNgramSize(mdKeywords, 4);
-  const bm25BySize = groupByNgramSize(bm25Keywords, 4);
+
+  // If BM25 tokens weren't provided by caller, generate them from full content using BM25 tokenizer
+  let effectiveBm25 = Array.isArray(bm25Keywords) ? bm25Keywords.slice() : [];
+  if (effectiveBm25.length === 0 && typeof tokenize === 'function') {
+    try {
+      // `tokenize` here refers to BM25 tokenizer injected via context in keywords module
+      effectiveBm25 = tokenize(String(markdownContent || ''));
+    } catch (e) {
+      effectiveBm25 = [];
+    }
+  }
+
+  const bm25BySize = groupByNgramSize(effectiveBm25, 4);
 
   // Knowledge graph entities
   const kgKeywords = kgMermaid ? extractMermaidKeywords(String(kgMermaid)) : [];
@@ -220,6 +232,7 @@ function buildCategorizedKeywords(title, summaryText, markdownContent, opts = {}
       '2gram': cleanKeywords([...new Set(summaryBySize['2gram'])], N)
     },
     content: {
+      // Content 1gram should always include structural MD tokens (from emphasis/headers/etc.)
       '1gram': cleanKeywords([...new Set([...(mdBySize['1gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['1gram']])], N),
       '2gram': cleanKeywords([...new Set([...(mdBySize['2gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['2gram']])], N),
       '3gram': cleanKeywords([...new Set([...(mdBySize['3gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['3gram']])], N),

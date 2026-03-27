@@ -30,6 +30,9 @@ const STOP_WORDS = new Set([
     'and', 'or', 'but', 'if', 'then', 'else', 'when', 'at', 'by', 'for', 'with', 'without', 
     'on', 'in', 'to', 'from', 'of', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 
     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should', 'can', 
+    'get', 'set', 'let', 'make', 'go', 'come', 'see', 'look', 'know', 'think', 'say', 'tell',
+    'ask', 'answer', 'help', 'use', 'used', 'using', 'need', 'need', 'want', 'want',
+    'require', 'require', 'include', 'include', 'add', 'added', 
     'could', 'may', 'might', 'must', 'a', 'an', 'the', 'it', 'this', 'that', 'these', 'those',
     'i', 'you', 'he', 'she', 'they', 'we', 'me', 'him', 'her', 'them', 'us', 'my', 'your', 'his', 
     'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs', 'what', 'which', 'who', 'whom', 'whose',
@@ -39,13 +42,6 @@ const STOP_WORDS = new Set([
     'doesn', 'hadn', 'hasn', 'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 
     'shouldn', 'wasn', 'weren', 'won', 'wouldn', 't', 'please', 'thank', 'thanks',
     'hello', 'hi', 'regards', 'dear', 'sincerely', 'best', 'wish', 'wishes', 'regard',
-    'change', 'update', 'new', 'latest', 'version', 'issue', 'problem', 'error', 'fix', 'bug',
-    'feature', 'request', 'task', 'note', 'notes', 'information', 'info', 'data', 'details',
-    'document', 'documents', 'file', 'files', 'attachment', 'attachments', 'report', 'reports',
-    'summary', 'overview', 'introduction', 'conclusion', 'section', 'sections', 'chapter', 'chapters',
-    'page', 'pages', 'line', 'lines', 'code', 'codes', 'script', 'scripts', 'function', 'functions',
-    'method', 'methods', 'class', 'classes', 'object', 'objects', 'variable', 'variables',
-    'constant', 'constants', 'parameter', 'parameters', 'argument', 'arguments'
 ]);
 
 const PATTERNS = [

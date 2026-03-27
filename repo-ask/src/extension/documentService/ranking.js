@@ -206,6 +206,10 @@ function applyReferencedQueryNeighborBoost(scoredDocs, allMetadata, lowerQuerySt
 function rankLocalDocuments(query, limit = 20) {
   const repoAskConfig = vscode.workspace.getConfiguration('repoAsk');
   const maxResults = Math.max(Number(repoAskConfig.get('maxSearchResults')) || 5, 1);
+  const topScoreThresholdRatio = (() => {
+    const v = Number(repoAskConfig.get('topScoreThresholdRatio'));
+    return Number.isFinite(v) && v > 0 ? v : DEFAULT_TOP_SCORE_THRESHOLD_RATIO;
+  })();
 
   const metadataList = readAllMetadata(storagePath).map(normalizeMetadataKeywordFields);
   if (metadataList.length === 0) {
@@ -445,9 +449,9 @@ function rankLocalDocuments(query, limit = 20) {
   // Group related documents (for logical ordering, not hard filtering)
   combinedRanked = groupRelatedDocuments(combinedRanked, bufferSize);
 
-  // Adaptive cutoff: guarantee at least maxResults docs pass (when available),
-  // then respect the score-ratio threshold.
-  combinedRanked = applyTopScoreCutoff(combinedRanked, DEFAULT_TOP_SCORE_THRESHOLD_RATIO, maxResults);
+  // Adaptive cutoff: remove docs below the threshold ratio, keeping at least 1.
+  // The hard cap below enforces the maxResults upper bound separately.
+  combinedRanked = applyTopScoreCutoff(combinedRanked, topScoreThresholdRatio, 1);
 
   // Hard cap at maxResults
   combinedRanked = combinedRanked.slice(0, maxResults);
