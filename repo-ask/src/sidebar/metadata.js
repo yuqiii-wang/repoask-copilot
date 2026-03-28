@@ -20,12 +20,29 @@
                 return [];
             }
             return Object.entries(metadata)
-                .filter(([key]) => key !== 'summary' && key !== 'keywords' && key !== 'tags' && key !== 'referencedQueries' && key !== 'synonyms' && key !== 'type' && key !== 'knowledgeGraph')
+                .filter(([key]) => key !== 'summary' && key !== 'keywords' && key !== 'tags' && key !== 'referencedQueries' && key !== 'type' && key !== 'knowledgeGraph')
                 .map(([key, value]) => {
                     if (Array.isArray(value)) return { key, value: value.join(', ') };
                     if (value && typeof value === 'object') return { key, value: JSON.stringify(value) };
                     return { key, value: String(value ?? '') };
                 });
+        }
+
+        /**
+         * Extract user-editable semantic keywords from the categorized keywords object.
+         * Falls back to a flat array (legacy) if keywords is still a plain array.
+         */
+        function semanticKeywords(keywords) {
+            if (Array.isArray(keywords)) return keywords;
+            if (!keywords || typeof keywords !== 'object') return [];
+            const slot = keywords.semantic;
+            if (!slot) return [];
+            if (Array.isArray(slot)) return slot;
+            return ['1gram', '2gram', '3gram', '4gram'].flatMap(g => {
+                const gs = slot[g];
+                if (!gs) return [];
+                return Array.isArray(gs) ? gs : Object.keys(gs);
+            });
         }
 
         function setMetadataEditMode(isEditing) {
@@ -71,7 +88,8 @@
 
             if(summaryInputEl) summaryInputEl.value = selectedMetadata ? String(selectedMetadata.summary || '') : '';
             if (typeof typeInputEl !== 'undefined' && typeInputEl) typeInputEl.value = selectedMetadata ? String(selectedMetadata.type || 'custom') : 'custom';
-            const keywordValues = selectedMetadata && Array.isArray(selectedMetadata.keywords) ? selectedMetadata.keywords : [];
+            // Show semantic (AI-gen / user-editable) keywords in the editable field
+            const keywordValues = selectedMetadata ? semanticKeywords(selectedMetadata.keywords) : [];
             if(keywordsInputEl) keywordsInputEl.value = keywordValues.join(', ');
             const tagValues = selectedMetadata && Array.isArray(selectedMetadata.tags) ? selectedMetadata.tags : [];
             if(tagsInputEl) tagsInputEl.value = tagValues.join(', ');

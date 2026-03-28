@@ -1,142 +1,137 @@
-const { tokenize, generate_ngrams, extractStructuralCompounds } = require('./core');
-const {
-    patternTokenizer,
-    extract_capital_sequences,
-    STOP_WORDS,
-} = require('./patternMatch');
+const { STOP_WORDS } = require('./patternMatch');
 const { generateSynonyms } = require('./synonyms');
 
+const MIN_WORD_LENGTH = 2;
+const MAX_WORD_LENGTH = 64;
+
 /**
- * Splits a camelCase or snake_case identifier into word parts.
- * Returns ALL parts (no length filter) so the full phrase is preserved.
- * Caller is responsible for filtering parts when adding them individually.
+ * Split a camelCase or PascalCase word into lowercase parts.
+ * E.g. "TradeProcessor" → ["trade","processor"], "XMLParser" → ["xml","parser"]
  */
-function splitCompoundIdentifier(token) {
-    // camelCase / PascalCase: lowercase-to-uppercase OR consecutive-uppercase-then-lowercase
-    // e.g. getUserById, FXEngine, HTMLParser
-    if (/[a-z0-9][A-Z]/.test(token) || /[A-Z]{2,}[a-z]/.test(token)) {
-        const parts = token
-            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-            .toLowerCase()
-            .split(/\s+/)
-            .filter(p => p.length > 0);
-        if (parts.length > 1) return parts;
-    }
-    // snake_case: contains underscore with multiple segments
-    if (token.includes('_')) {
-        const parts = token.toLowerCase().split('_').filter(p => p.length > 0);
-        if (parts.length > 1) return parts;
-    }
-    return null;
+function splitCamelCase(word) {
+    return word
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .split(/\s+/)
+        .map(w => w.toLowerCase())
+        .filter(Boolean);
 }
 
-const MAX_PARENTHESIS_KEYWORD_TOKENS = 10;
+function isValidToken(token) {
+    return (
+        token.length >= MIN_WORD_LENGTH &&
+        token.length <= MAX_WORD_LENGTH &&
+        !STOP_WORDS.has(token) &&
+        /[a-z]/.test(token)
+    );
+}
 
-function extractParenthesizedKeywords(text, maxTokens = MAX_PARENTHESIS_KEYWORD_TOKENS) {
+/**
+ * Break text into clean lowercase word tokens, splitting camelCase and snake_case.
+ * Compound tokens joined by - _ . + / are emitted as both the whole compound and
+ * each individual part, e.g. "trade-1234-20260321" → ["trade-1234-20260321","trade","1234","20260321"].
+ * Pure digit sequences (IDs, dates, codes) are also captured.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function wordsFromText(text) {
     const rawText = String(text || '');
-    if (!rawText.trim()) {
-        return [];
+    const words = [];
+
+    // ── Step 1: Compound tokens ────────────────────────────────────────────────
+    // Alpha/digit segments joined by - _ . + /  (e.g. "trade-1234-20260321", "v1.2.3")
+    // Emit the entire compound as one lowercase token, then each individual part.
+    const compoundRe = /[A-Za-z0-9]+(?:[-_.+/][A-Za-z0-9]+)+/g;
+    let m;
+    while ((m = compoundRe.exec(rawText)) !== null) {
+        const compound = m[0];
+        words.push(compound.toLowerCase());                 // whole — one token
+        for (const part of compound.split(/[-_.+/]/)) {
+            if (!part) continue;
+            if (/^\d+$/.test(part)) {
+                // pure-digit segment (e.g. "1234", date "20260321")
+                if (part.length >= MIN_WORD_LENGTH && part.length <= MAX_WORD_LENGTH) {
+                    words.push(part);
+                }
+            } else {
+                const hasCamel = /[A-Z]/.test(part) && /[a-z]/.test(part);
+                if (hasCamel) {
+                    for (const p of splitCamelCase(part)) {
+                        if (isValidToken(p)) words.push(p);
+                    }
+                } else {
+                    const lower = part.toLowerCase();
+                    if (isValidToken(lower)) words.push(lower);
+                }
+            }
+        }
     }
 
-    const phrases = [];
-    const regex = /\(([^()]+)\)/g;
-    let match;
-
-    while ((match = regex.exec(rawText)) !== null) {
-        const candidate = String(match[1] || '').replace(/\s+/g, ' ').trim();
-        if (!candidate) {
-            continue;
-        }
-
-        const tokenCount = candidate.split(/\s+/).filter(Boolean).length;
-        if (tokenCount > 0 && tokenCount <= maxTokens) {
-            phrases.push(candidate);
+    // ── Step 2: Standalone word tokens (camelCase / snake_case) ───────────────
+    // The underscore in the pattern captures snake_case as a single token for splitting.
+    const wordTokens = rawText.match(/[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*/g) || [];
+    for (const token of wordTokens) {
+        const hasCamel = /[A-Z]/.test(token) && /[a-z]/.test(token);
+        const hasSnake = token.includes('_');
+        if (hasCamel) {
+            for (const part of splitCamelCase(token)) {
+                if (isValidToken(part)) words.push(part);
+            }
+        } else if (hasSnake) {
+            for (const part of token.toLowerCase().split('_').filter(Boolean)) {
+                if (isValidToken(part)) words.push(part);
+            }
+        } else {
+            const lower = token.toLowerCase();
+            if (isValidToken(lower)) words.push(lower);
         }
     }
 
-    return [...new Set(phrases)];
+    // ── Step 3: Pure digit sequences ──────────────────────────────────────────
+    // Captures numeric IDs, dates, codes, etc. not already emitted from compounds.
+    // Deduplication happens in tokenize() via Set.
+    const digitRe = /\b\d{2,20}\b/g;
+    while ((m = digitRe.exec(rawText)) !== null) {
+        words.push(m[0]);
+    }
+
+    return words;
 }
 
 /**
- * Centralized API for tokenization functionality
+ * Generate n-gram strings (space-joined) from a word array.
+ * @param {string[]} words
+ * @param {number} minN
+ * @param {number} maxN
+ * @returns {string[]}
  */
-function tokenizeText(text, options = {}) {
-    const {
-        includeNGrams = true,
-        includePatterns = true,
-        nGramMin = 1,
-        nGramMax = 4,
-    } = options;
-
-    let primaryTokens = [];
-    let secondaryTokens = [];
-
-    const parenthesizedKeywords = extractParenthesizedKeywords(text);
-    if (parenthesizedKeywords.length > 0) {
-        primaryTokens = primaryTokens.concat(parenthesizedKeywords);
-    }
-
-    // Structural-separator compound phrases as primary keywords
-    // e.g. "trade-event" → "trade event"; "account_balance" → "account balance"
-    const structuralCompounds = extractStructuralCompounds(text);
-    if (structuralCompounds.length > 0) {
-        primaryTokens = primaryTokens.concat(structuralCompounds);
-    }
-
-    // Base tokenization (single-word tokens only — compound phrases excluded to keep n-grams clean)
-    const baseTokens = tokenize(text);
-    secondaryTokens = secondaryTokens.concat(baseTokens);
-
-    // N-grams and capital sequences
-    if (includeNGrams) {
-        const nGrams = generate_ngrams(baseTokens, nGramMin, nGramMax);
-        secondaryTokens = secondaryTokens.concat(nGrams);
-
-        const capitalSequences = extract_capital_sequences(text);
-        if (capitalSequences && capitalSequences.length > 0) {
-            primaryTokens = primaryTokens.concat(capitalSequences);
+function buildNGrams(words, minN = 1, maxN = 4) {
+    if (!words.length) return [];
+    const ngrams = [];
+    const upper = Math.min(maxN, words.length);
+    for (let n = minN; n <= upper; n++) {
+        for (let i = 0; i <= words.length - n; i++) {
+            ngrams.push(words.slice(i, i + n).join(' '));
         }
     }
-
-    // Pattern-based tokens: detect camelCase/snake_case identifiers in raw text and
-    // add the split phrase + meaningful parts as high-priority primary keywords.
-    if (includePatterns) {
-        const CAMEL_BROAD = /\b[a-zA-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b/g;
-        const SNAKE_BROAD = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
-        const identifiers = new Set();
-        let m;
-        while ((m = CAMEL_BROAD.exec(text)) !== null) identifiers.add(m[0]);
-        while ((m = SNAKE_BROAD.exec(text)) !== null) identifiers.add(m[0]);
-        for (const id of identifiers) {
-            const parts = splitCompoundIdentifier(id);
-            if (parts && parts.length >= 2) {
-                primaryTokens.push(parts.join(' ')); // e.g. "fx engine", "get user by id"
-                parts.filter(p => p.length >= 2 && !STOP_WORDS.has(p)).forEach(p => primaryTokens.push(p));
-            }
-            secondaryTokens.push(id.toLowerCase());
-        }
-        // All other pattern tokens (emails, tickers, ISINs, etc.)
-        const patternTokens = patternTokenizer(text);
-        secondaryTokens = secondaryTokens.concat(patternTokens);
-    }
-
-    // Deduplicate tokens while preserving order
-    const uniqueTokens = [];
-    const seen = new Set();
-    const allTokens = [...primaryTokens, ...secondaryTokens];
-
-    for (const token of allTokens) {
-        if (!seen.has(token)) {
-            seen.add(token);
-            uniqueTokens.push(token);
-        }
-    }
-
-    return uniqueTokens;
+    return ngrams;
 }
 
-module.exports = {
-    tokenize: tokenizeText,
-    generateSynonyms
-};
+/**
+ * Tokenize text into an array of unique lowercase tokens.
+ * With includeNGrams: true, generates n-grams (default 1–4).
+ * @param {string} text
+ * @param {{ includeNGrams?: boolean, minN?: number, maxN?: number }} options
+ * @returns {string[]}
+ */
+function tokenize(text, options = {}) {
+    const words = wordsFromText(text);
+    if (!options.includeNGrams) {
+        return [...new Set(words)];
+    }
+    const minN = options.minN || 1;
+    const maxN = options.maxN || 4;
+    return [...new Set(buildNGrams(words, minN, maxN))];
+}
+
+module.exports = { tokenize, generateSynonyms, wordsFromText, buildNGrams };

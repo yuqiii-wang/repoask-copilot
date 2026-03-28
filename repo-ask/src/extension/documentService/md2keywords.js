@@ -1,174 +1,172 @@
-const { STOP_WORDS } = require('./tokenization2keywords/patternMatch');
+const MarkdownIt = require('markdown-it');
+const { STOP_WORDS, extract_capital_sequences } = require('./tokenization2keywords/patternMatch');
+const { wordsFromText, buildNGrams } = require('./tokenization2keywords');
 
-function extractMdEmphasis(text) {
-    const emphases = [];
-    let remainingText = text;
+const md = new MarkdownIt({ html: false, linkify: false });
 
-    // Title / Headers
-    const titleMatch = remainingText.match(/^#+\s+(.+)$/gm);
-    if (titleMatch) {
-        titleMatch.forEach(match => {
-            const clean = match.replace(/^#+\s+/, '').trim();
-            if (clean) emphases.push({ type: 'header', text: clean });
-        });
-    }
+// Maximum n-gram size to extract per heading level (h1 → 4-grams, h2 → 3-grams, …)
+const HEADING_MAX_NGRAM = { 1: 4, 2: 3, 3: 2, 4: 2, 5: 1, 6: 1 };
 
-    // Code blocks (```lang ... ``` and ~~~lang ... ~~~) - extract first to avoid matching inside
-    const codeBlockRegex = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
-    let codeBlockMatch;
-    while ((codeBlockMatch = codeBlockRegex.exec(remainingText)) !== null) {
-        const match = codeBlockMatch[0];
-        const clean = match.replace(/```[\s\S]*?\n/, '').replace(/```$/, '').replace(/~~~[\s\S]*?\n/, '').replace(/~~~$/, '').trim();
-        if (clean) emphases.push({ type: 'code', text: clean });
-    }
-
-    // Replace code blocks with placeholder to avoid matching inside them
-    remainingText = remainingText.replace(codeBlockRegex, '');
-
-    // Inline code (`code`)
-    const inlineCodeRegex = /`([^`]+)`/g;
-    let inlineCodeMatch;
-    while ((inlineCodeMatch = inlineCodeRegex.exec(remainingText)) !== null) {
-        const clean = inlineCodeMatch[1].trim();
-        if (clean) emphases.push({ type: 'inlineCode', text: clean });
-    }
-
-    // Replace inline code with placeholder
-    remainingText = remainingText.replace(inlineCodeRegex, '');
-
-    // Images ![alt](url) - extract before links to avoid confusion
-    const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-    let imageMatch;
-    while ((imageMatch = imageRegex.exec(remainingText)) !== null) {
-        const alt = imageMatch[1].trim();
-        if (alt) emphases.push({ type: 'image', text: alt });
-    }
-    remainingText = remainingText.replace(imageRegex, '');
-
-    // Links [text](url)
-    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-    let linkMatch;
-    while ((linkMatch = linkRegex.exec(remainingText)) !== null) {
-        const linkText = linkMatch[1].trim();
-        if (linkText) emphases.push({ type: 'link', text: linkText });
-    }
-    remainingText = remainingText.replace(linkRegex, '');
-
-    // Bold
-    const boldRegex = /(?:\*\*|__)([^\*_]+?)(?:\*\*|__)/g;
-    let boldMatch;
-    while ((boldMatch = boldRegex.exec(remainingText)) !== null) {
-        const clean = boldMatch[1].trim();
-        if (clean) emphases.push({ type: 'bold', text: clean });
-    }
-    remainingText = remainingText.replace(boldRegex, '');
-
-    // Strikethrough
-    const strikeRegex = /~~([^~]+?)~~/g;
-    let strikeMatch;
-    while ((strikeMatch = strikeRegex.exec(remainingText)) !== null) {
-        const clean = strikeMatch[1].trim();
-        if (clean) emphases.push({ type: 'strikethrough', text: clean });
-    }
-    remainingText = remainingText.replace(strikeRegex, '');
-
-    // Italic - improved non-greedy regex that avoids matching inside other formatting
-    const italicRegex = /(?:\*|_)([^\*_]+?)(?:\*|_)/g;
-    let italicMatch;
-    while ((italicMatch = italicRegex.exec(remainingText)) !== null) {
-        const clean = italicMatch[1].trim();
-        if (clean) emphases.push({ type: 'italic', text: clean });
-    }
-
-    return emphases;
+/**
+ * Tokenize text and add 1–maxN grams to the keyword set.
+ */
+function addNGramsFromText(text, keywords, maxN) {
+    const words = wordsFromText(text);
+    buildNGrams(words, 1, Math.min(maxN, words.length || 1)).forEach(ng => keywords.add(ng));
 }
 
+/**
+ * Extract code-style identifiers from text:
+ *   - camelCase / PascalCase  → split parts + 1-3 gram combos
+ *   - snake_case              → underscore-split parts + joined
+ *   - ALL_CAPS identifiers    → lowercased token
+ *   - Capital multi-word sequences (e.g. "Trade Manager") → 2-4 gram phrases
+ */
+function addCodeIdentifiers(text, keywords) {
+    const str = String(text || '');
+    let m;
+
+    // Compound tokens joined by - _ . + /  (e.g. FX-2024-00789, TRADE-TYPE-001, v1.2.3-beta)
+    // Emit whole compound as 1-gram, then n-grams of the clean parts.
+    const compoundRe = /[A-Za-z0-9]+(?:[-_.+/][A-Za-z0-9]+)+/g;
+    while ((m = compoundRe.exec(str)) !== null) {
+        keywords.add(m[0].toLowerCase());
+        const parts = [];
+        for (const seg of m[0].split(/[-_.+/]/)) {
+            if (!seg) continue;
+            if (/^\d+$/.test(seg)) {
+                if (seg.length >= 2) parts.push(seg);
+            } else {
+                for (const w of wordsFromText(seg)) {
+                    if (!parts.includes(w)) parts.push(w);
+                }
+            }
+        }
+        if (parts.length) {
+            buildNGrams(parts, 1, Math.min(4, parts.length)).forEach(ng => keywords.add(ng));
+        }
+    }
+
+    // camelCase and PascalCase (at least two humps)
+    const camelRe = /[A-Za-z][a-z]+(?:[A-Z][a-z]+)+/g;
+    while ((m = camelRe.exec(str)) !== null) {
+        const words = wordsFromText(m[0]);
+        buildNGrams(words, 1, Math.min(3, words.length)).forEach(ng => keywords.add(ng));
+    }
+
+    // ALLCAPS with optional underscores (e.g. "BUY_LIMIT", "HTTP", "UUID")
+    const allCapsRe = /\b[A-Z][A-Z0-9]{1,}(?:_[A-Z0-9]+)*\b/g;
+    while ((m = allCapsRe.exec(str)) !== null) {
+        keywords.add(m[0].toLowerCase());
+        if (m[0].includes('_')) {
+            const parts = m[0].toLowerCase().split('_').filter(p => p.length >= 2 && !STOP_WORDS.has(p));
+            buildNGrams(parts, 1, Math.min(3, parts.length)).forEach(ng => keywords.add(ng));
+        }
+    }
+
+    // snake_case (at least two segments, no all-caps — those are handled above)
+    const snakeRe = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,}\b/g;
+    while ((m = snakeRe.exec(str)) !== null) {
+        const parts = m[0].split('_').filter(p => p.length >= 2 && !STOP_WORDS.has(p));
+        buildNGrams(parts, 1, Math.min(3, parts.length)).forEach(ng => keywords.add(ng));
+    }
+
+    // Capital multi-word sequences (e.g. "Risk Manager", "Order Book")
+    for (const seq of extract_capital_sequences(str)) {
+        const words = wordsFromText(seq);
+        if (words.length >= 2) {
+            buildNGrams(words, 2, Math.min(4, words.length)).forEach(ng => keywords.add(ng));
+        } else if (words.length === 1 && !STOP_WORDS.has(words[0])) {
+            keywords.add(words[0]);
+        }
+    }
+}
+
+/**
+ * Extract keywords from a markdown document using structure signals:
+ *   - Headings   (h1→4-grams, h2→3-grams, h3/h4→2-grams, h5/h6→1-grams)
+ *   - Bold text  (1-3 grams)
+ *   - Inline code spans and fenced code blocks (identifier extraction)
+ *   - camelCase, PascalCase, snake_case, ALL_CAPS, and capital sequences
+ *     throughout the entire document
+ *
+ * No external library is needed beyond markdown-it (already a dependency).
+ *
+ * @param {string} text  Markdown source text.
+ * @returns {string[]}   Deduplicated keyword strings (1–4 grams).
+ */
 function extractMdKeywords(text) {
     const rawText = String(text || '');
-    let tokens = [];
+    if (!rawText.trim()) return [];
 
-    const emphases = extractMdEmphasis(rawText);
-    
-    for (const emphasis of emphases) {
-        const { text: emphasisText } = emphasis;
-        
-        // Preserve dashes/underscores within words so compounds stay intact
-        const sanitizedText = emphasisText.toLowerCase()
-            .replace(/[^\w\s\-]/g, ' ')
-            .replace(/^-+|-+$/g, ' ')
-            .trim();
-        
-        const splitTokens = sanitizedText
-            .split(/\s+/)
-            .filter(t => t.length > 2 && t.length <= 50 && !STOP_WORDS.has(t));
-        
-        // Preserve the full emphasis phrase as an n-gram keyword (md syntax already stripped)
-        if (splitTokens.length > 1) {
-            tokens.push(splitTokens.join(' '));
-        }
-        splitTokens.forEach(token => tokens.push(token));
+    const keywords = new Set();
+
+    let tokens;
+    try {
+        tokens = md.parse(rawText, {});
+    } catch {
+        tokens = [];
     }
 
-    // ── Structural identifiers from the full document ────────────────────────
-    // These MUST always be present as content keywords, regardless of BM25.
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
 
-    // 1. camelCase / PascalCase identifiers → split at case boundaries
-    {
-        const re = /[a-zA-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)+/g;
-        let m;
-        while ((m = re.exec(rawText)) !== null) {
-            const rawParts = m[0]
-                .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-                .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-                .toLowerCase()
-                .split(/\s+/)
-                .filter(p => p.length > 0);
-            if (rawParts.length >= 2) {
-                tokens.push(rawParts.join(' '));
-                rawParts.filter(p => p.length > 2 && !STOP_WORDS.has(p)).forEach(p => tokens.push(p));
+        // ── Headings ──────────────────────────────────────────────────────
+        if (token.type === 'heading_open') {
+            const level = parseInt(token.tag.slice(1), 10);
+            const maxN = HEADING_MAX_NGRAM[level] || 2;
+            const inline = tokens[i + 1];
+            if (inline && inline.type === 'inline' && inline.children) {
+                const headingText = inline.children.map(c => c.content || '').join(' ');
+                addNGramsFromText(headingText, keywords, maxN);
+                addCodeIdentifiers(headingText, keywords);
+            }
+            continue;
+        }
+
+        // ── Inline tokens (bold, italic, inline code) ─────────────────────
+        if (token.type === 'inline' && token.children) {
+            const children = token.children;
+            for (let j = 0; j < children.length; j++) {
+                const child = children[j];
+
+                // Bold / strong text → 1-3 grams
+                if (child.type === 'strong_open') {
+                    const parts = [];
+                    let k = j + 1;
+                    while (k < children.length && children[k].type !== 'strong_close') {
+                        if (children[k].content) parts.push(children[k].content);
+                        k++;
+                    }
+                    const boldText = parts.join(' ');
+                    addNGramsFromText(boldText, keywords, 3);
+                    addCodeIdentifiers(boldText, keywords);
+                }
+
+                // Inline code spans → identifier extraction only
+                if (child.type === 'code_inline') {
+                    addCodeIdentifiers(child.content || '', keywords);
+                    // Also add the raw span as a 1-gram if it looks like a word
+                    const raw = (child.content || '').trim();
+                    if (/^[a-zA-Z][a-zA-Z0-9_.-]{1,63}$/.test(raw)) {
+                        keywords.add(raw.toLowerCase());
+                    }
+                }
             }
         }
-    }
 
-    // 2. snake_case / SCREAMING_SNAKE identifiers → split on underscores
-    {
-        const re = /[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+/g;
-        let m;
-        while ((m = re.exec(rawText)) !== null) {
-            const rawParts = m[0].toLowerCase().split('_').filter(p => p.length > 0);
-            if (rawParts.length >= 2) {
-                tokens.push(rawParts.join(' '));
-                rawParts.filter(p => p.length > 2 && !STOP_WORDS.has(p)).forEach(p => tokens.push(p));
-            }
+        // ── Code blocks ────────────────────────────────────────────────────
+        if (token.type === 'fence' || token.type === 'code_block') {
+            addCodeIdentifiers(token.content || '', keywords);
         }
     }
 
-    // 3. Capital word sequences: "Trade Management System", "HTTP Request Body"
-    {
-        const re = /(?:^|[\s([{"'>-])([A-Z][A-Za-z0-9]*(?:[ -][A-Z][A-Za-z0-9]*)+)/gm;
-        let m;
-        while ((m = re.exec(rawText)) !== null) {
-            const seq = m[1].trim();
-            const lower = seq.toLowerCase().replace(/-/g, ' ');
-            tokens.push(lower);
-            lower.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w)).forEach(w => tokens.push(w));
-        }
-    }
+    // Scan the full raw text for code patterns not caught by the token walk
+    addCodeIdentifiers(rawText, keywords);
 
-    // 4. ALL-CAPS acronyms not already captured (HTTP, API, JWT, FX, etc.)
-    {
-        const re = /\b([A-Z]{2,10})\b/g;
-        let m;
-        while ((m = re.exec(rawText)) !== null) {
-            const ac = m[1].toLowerCase();
-            if (!STOP_WORDS.has(ac)) tokens.push(ac);
-        }
-    }
-
-    return [...new Set(tokens)];
+    return [...keywords].filter(kw => kw.length >= 2);
 }
 
 module.exports = {
-    extractMdEmphasis,
     extractMdKeywords
 };

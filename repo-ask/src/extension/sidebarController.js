@@ -4,7 +4,7 @@ const vscode = require('vscode');
 const { updateConfluencePage } = require('../mcp/confluenceApi');
 const { mapFeedbackError } = require('./errMap');
 const { createOpenDocCommand, createMetadataCommands, createSearchCommand, createPromptsCommand, createSkillsCommand, createDeleteCommand, createResetCommand } = require('./commands');
-const { generateKnowledgeGraph, extractMermaidKeywords } = require('./tools/llm');
+const { generateKnowledgeGraph } = require('./tools/llm');
 
 
 function createSidebarController(deps) {
@@ -380,11 +380,12 @@ function createSidebarController(deps) {
                     }
 
                     if (targetDocument) {
-                        const currentReferenceQueries = Array.isArray(targetDocument.referencedQueries) ? targetDocument.referencedQueries : [];
+                        const normalizedDoc = documentService.getStoredMetadataById(targetDocument.id) || targetDocument;
+                        const currentReferenceQueries = Array.isArray(normalizedDoc.referencedQueries) ? normalizedDoc.referencedQueries : [];
                         if (!currentReferenceQueries.includes(sourceQuery)) {
                             const updatedReferenceQueries = [...currentReferenceQueries, sourceQuery];
                             const updatedMetadata = {
-                                ...targetDocument,
+                                ...normalizedDoc,
                                 referencedQueries: updatedReferenceQueries
                             };
                             try {
@@ -442,14 +443,10 @@ function createSidebarController(deps) {
                     if (primaryDoc) {
                         const content = readDocumentContent(storagePath, primaryDoc.id);
                         if (content) {
-                            const mermaidKeywords = extractMermaidKeywords(knowledgeGraphFromUi);
-                            const existingKeywords = Array.isArray(primaryDoc.keywords) ? primaryDoc.keywords : [];
-                            const mergedKeywords = [...existingKeywords];
-                            for (const kw of mermaidKeywords) {
-                                if (!mergedKeywords.includes(kw)) mergedKeywords.push(kw);
-                            }
-                            const updatedMeta = { ...primaryDoc, knowledgeGraph: knowledgeGraphFromUi, keywords: mergedKeywords };
+                            const normalizedMeta = documentService.getStoredMetadataById(primaryDoc.id) || primaryDoc;
+                            const updatedMeta = { ...normalizedMeta, knowledgeGraph: knowledgeGraphFromUi };
                             writeDocumentFiles(storagePath, primaryDoc.id, content, updatedMeta);
+                            await documentService.finalizeBm25KeywordsForDocuments([primaryDoc.id]);
                             console.log('[handleSubmitFeedback] Saved knowledge graph to primary doc:', primaryDoc.id);
                         }
                     }

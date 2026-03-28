@@ -15,7 +15,8 @@ module.exports = function(context) {
      resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, 
      getKeywordConfig, buildKeywordOnlyIndexText, 
      normalizeKeywordsInput, cleanKeywords, normalizeMetadataKeywordFields, 
-     mergeKeywordsPreservingSignals, appendKeywordsToExisting, cheerio} = context;
+     mergeKeywordsPreservingSignals, mergeSemanticKeywords,
+     normalizeCategorizedKeywords, flattenCategorizedKeywords, appendKeywordsToExisting, cheerio} = context;
 
 function writeDocumentPromptFile(metadata, content) {
   const workspaceRoot = getWorkspaceRootPath();
@@ -38,15 +39,15 @@ function writeDocumentSkillFile(metadata, content) {
   const workspaceRoot = getWorkspaceRootPath();
   const skillsDir = path.join(workspaceRoot, '.github', 'skills');
 
-  if (!fs.existsSync(skillsDir)) {
-    fs.mkdirSync(skillsDir, { recursive: true });
+  const safeTitle = sanitizeFileSegment(metadata.title || 'document');
+  const skillDirPath = path.join(skillsDir, safeTitle);
+
+  if (!fs.existsSync(skillDirPath)) {
+    fs.mkdirSync(skillDirPath, { recursive: true });
   }
 
-  const safeTitle = sanitizeFileSegment(metadata.title || 'document');
-  const safeId = sanitizeFileSegment(metadata.id || 'unknown');
-  const fileName = `${safeTitle}-${safeId}.skill.md`;
-  const filePath = path.join(skillsDir, fileName);
-  const skillText = ['---', metadata.summary || '', '---', '', `# ${metadata.title || 'Untitled'}`, '', `Source ID: ${metadata.id || ''}`, `Author: ${metadata.author || 'Unknown'}`, `Last Updated: ${metadata.last_updated || ''}`, `Parent Topic: ${metadata.parent_confluence_topic || ''}`, '', '## Skill Instructions', 'Use the following document content as a reference skill or knowledge base for completing tasks.', '', '## Content', content].join('\n');
+  const filePath = path.join(skillDirPath, 'SKILL.md');
+  const skillText = ['---', `name: ${safeTitle}`, `description: ${metadata.summary || ''}`, '---', '', `# ${metadata.title || 'Untitled'}`, '', `Source ID: ${metadata.id || ''}`, `Author: ${metadata.author || 'Unknown'}`, `Last Updated: ${metadata.last_updated || ''}`, `Parent Topic: ${metadata.parent_confluence_topic || ''}`, '', '## Skill Instructions', 'Use the following document content as a reference skill or knowledge base for completing tasks.', '', '## Content', content].join('\n');
   fs.writeFileSync(filePath, skillText, 'utf8');
   return filePath;
 }
@@ -132,9 +133,14 @@ async function generateStoredMetadataById(docId) {
     throw new Error(`No local content found for document ${docId}.`);
   }
   const annotation = await generateAnnotationWithLlm(metadata, content);
+  const semanticKeywords = cleanKeywords(annotation.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
+  // Append new LLM keywords into the semantic slot; preserve all other categories
+  const mergedKeywords = mergeSemanticKeywords(metadata.keywords, semanticKeywords);
+  // Rebuild synonyms from the full updated keyword set
+  mergedKeywords.synonyms = generateSynonyms(flattenCategorizedKeywords(mergedKeywords));
   const updatedMetadata = normalizeMetadataKeywordFields({
     ...metadata,
-    keywords: cleanKeywords(annotation.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT),
+    keywords: mergedKeywords,
     summary: String(annotation.summary || '').trim()
   });
   writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);
@@ -150,14 +156,14 @@ function updateStoredMetadataById(docId, patch = {}) {
   if (!content) {
     throw new Error(`No local content found for document ${docId}.`);
   }
-  const tokenizationSource = [metadata.title || '', content || ''].filter(Boolean).join('\n');
-  const tokenizationKeywords = cleanKeywords(tokenize(tokenizationSource), getKeywordConfig().TOKENIZATION_KEYWORD_LIMIT);
+  // Preserve all existing keyword categories (title, structural, bm25, kg)
+  const existingKws = normalizeCategorizedKeywords(metadata.keywords);
+  // Replace semantic slot with user-edited keywords from the patch
   const manualKeywords = cleanKeywords(patch.keywords, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
-  const nextKeywords = mergeKeywordsPreservingSignals({
-    structuralKeywords: tokenizationKeywords,
-    lexicalKeywords: manualKeywords,
-    limit: getKeywordConfig().DEFAULT_KEYWORD_LIMIT
-  });
+  const updatedKws = mergeSemanticKeywords(existingKws, manualKeywords);
+  // Rebuild synonyms from the updated full keyword set
+  updatedKws.synonyms = generateSynonyms(flattenCategorizedKeywords(updatedKws));
+
   const nextSummary = String(patch.summary || '').trim();
   const nextType = patch.type !== undefined ? String(patch.type || '').trim() : metadata.type;
   const nextTags = cleanKeywords(patch.tags, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
@@ -165,7 +171,7 @@ function updateStoredMetadataById(docId, patch = {}) {
   const updatedMetadata = normalizeMetadataKeywordFields({
     ...metadata,
     type: nextType,
-    keywords: nextKeywords,
+    keywords: updatedKws,
     tags: nextTags,
     feedback: nextFeedback,
     summary: nextSummary

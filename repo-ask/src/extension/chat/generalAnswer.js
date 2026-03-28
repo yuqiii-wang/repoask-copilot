@@ -28,10 +28,12 @@ async function answerGeneralPromptQuestion(vscodeApi, prompt, workspacePromptCon
     let initialRankedContext = 'No initial documents found.';
     let topDocFromSearch = null;
     if (documentService && typeof documentService.rankLocalDocuments === 'function') {
-        const ranked = documentService.rankLocalDocuments(prompt, 10);
+        const repAskConfig = vscodeApi.workspace.getConfiguration('repoAsk');
+        const maxResults = Math.max(Number(repAskConfig.get('maxSearchResults')) || 5, 1);
+        const searchBuffer = Math.max(maxResults * 10, 50);
+        const ranked = documentService.rankLocalDocuments(prompt, searchBuffer);
 
         if (ranked && ranked.length > 0) {
-            const repAskConfig = vscodeApi.workspace.getConfiguration('repoAsk');
             const confProfile = repAskConfig.get('confluence');
             const confUrl = String((confProfile && typeof confProfile === 'object' ? confProfile.url : '') || '').replace(/\/$/, '');
             const jiraProfile = repAskConfig.get('jira');

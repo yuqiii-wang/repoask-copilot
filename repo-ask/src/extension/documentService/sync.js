@@ -96,7 +96,11 @@ async function processDocument(page) {
   const existingSummary = String(existingMetadata.summary || '').trim();
   const kgMermaid = typeof existingMetadata.knowledgeGraph === 'string' ? existingMetadata.knowledgeGraph : '';
 
-  const categorizedKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, { kgMermaid });
+  const baseKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, { kgMermaid });
+  const categorizedKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, {
+    kgMermaid,
+    synonymNGrams: generateSynonyms(flattenCategorizedKeywords(baseKeywords))
+  });
 
   const baseMetadata = {
     id: page.id,
@@ -107,7 +111,6 @@ async function processDocument(page) {
     url: sourceUrl,
     type: 'confluence',
     keywords: categorizedKeywords,
-    synonyms: cleanKeywords(generateSynonyms(flattenCategorizedKeywords(categorizedKeywords)), 80),
     summary: '',
     tags: Array.isArray(existingMetadata.tags) ? existingMetadata.tags : [],
     feedback: String(existingMetadata.feedback || '').trim(),
@@ -151,7 +154,11 @@ async function processJiraIssue(issue) {
   const existingSummary = String(existingMetadata.summary || '').trim();
   const kgMermaid = typeof existingMetadata.knowledgeGraph === 'string' ? existingMetadata.knowledgeGraph : '';
 
-  const categorizedKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, { kgMermaid });
+  const baseKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, { kgMermaid });
+  const categorizedKeywords = buildCategorizedKeywords(title, existingSummary, markdownContent, {
+    kgMermaid,
+    synonymNGrams: generateSynonyms(flattenCategorizedKeywords(baseKeywords))
+  });
 
   const baseMetadata = {
     id: issue?.id,
@@ -162,7 +169,6 @@ async function processJiraIssue(issue) {
     url: resolveSourceUrl(issue),
     type: 'jira',
     keywords: categorizedKeywords,
-    synonyms: cleanKeywords(generateSynonyms(flattenCategorizedKeywords(categorizedKeywords)), 80),
     summary: '',
     tags: Array.isArray(existingMetadata.tags) ? existingMetadata.tags : [],
     feedback: String(existingMetadata.feedback || '').trim(),
@@ -247,27 +253,35 @@ async function finalizeBm25KeywordsForDocuments(docIds = []) {
     scores.sort((a, b) => b.score - a.score);
     const bm25Keywords = scores.slice(0, topN).map(x => x.token);
 
-    // 3. Rebuild categorized keywords with BM25 tokens filling the content category
+    // 3. Rebuild categorized keywords with BM25 tokens filling the bm25 category
     const metaIndex = metadataList.findIndex(m => m.id === docId);
     if (metaIndex >= 0) {
       const meta = metadataList[metaIndex];
       const kgMermaid = typeof meta.knowledgeGraph === 'string' ? meta.knowledgeGraph : '';
       const existingSummary = String(meta.summary || '').trim();
 
+      // Preserve LLM-annotated semantic keywords across BM25 refresh
+      const oldNorm = normalizeCategorizedKeywords(meta.keywords);
+      const existingSemantic = ['1gram', '2gram', '3gram', '4gram']
+        .flatMap(g => {
+          const slot = oldNorm.semantic[g];
+          if (!slot) return [];
+          return Array.isArray(slot) ? cleanKeywords(slot) : Object.keys(slot);
+        });
+
+      const bm25Base = buildCategorizedKeywords(
+        meta.title,
+        existingSummary,
+        docText,
+        { bm25Keywords, kgMermaid, existingSemantic }
+      );
       meta.keywords = buildCategorizedKeywords(
         meta.title,
         existingSummary,
         docText,
-        { bm25Keywords, kgMermaid }
+        { bm25Keywords, kgMermaid, existingSemantic,
+          synonymNGrams: generateSynonyms(flattenCategorizedKeywords(bm25Base)) }
       );
-
-      // If there are annotation semantic keywords, preserve them
-      const existingKw = normalizeCategorizedKeywords(meta.keywords);
-      if (Array.isArray(existingKw.semantic) && existingKw.semantic.length > 0) {
-        meta.keywords.semantic = existingKw.semantic;
-      }
-
-      meta.synonyms = cleanKeywords(generateSynonyms(flattenCategorizedKeywords(meta.keywords)), 80);
       writeDocumentFiles(storagePath, meta.id, docText, meta);
     }
   }

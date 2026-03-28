@@ -1,342 +1,346 @@
-module.exports = function(context) {
-  const { vscode, tokenize: bm25Tokenize } = context;
-  const { generateSynonyms, tokenize: kwTokenize } = require('./tokenization2keywords');
-  const { extractMermaidKeywords } = require('../tools/llm');
-  const { extractMdKeywords } = require('./md2keywords');
-  // Alias so internal helpers that still need a 1-gram-only tokenizer keep working
-  const tokenize = bm25Tokenize;
-
-function getKeywordConfig() {
-  const initKeywordNum = vscode.workspace.getConfiguration('repoAsk').get('initKeywordNum') || 40;
-  return {
-    DEFAULT_KEYWORD_LIMIT: initKeywordNum,
-    TOKENIZATION_KEYWORD_LIMIT: Math.floor(initKeywordNum / 2),
-    BM25_KEYWORD_LIMIT: initKeywordNum - Math.floor(initKeywordNum / 2)
-  };
-}
-
-function buildKeywordOnlyIndexText(metadata) {
-  if (!metadata || typeof metadata !== 'object') {
-    return '';
-  }
-  const { DEFAULT_KEYWORD_LIMIT } = getKeywordConfig();
-  const flat = flattenCategorizedKeywords(metadata.keywords);
-  const keywords = cleanKeywords(flat, DEFAULT_KEYWORD_LIMIT * 4);
-  const tags = cleanKeywords(metadata.tags, DEFAULT_KEYWORD_LIMIT * 4);
-  const extended = cleanKeywords(metadata.synonyms, 200);
-  return [...keywords, ...tags, ...extended].join(' ');
-}
-
-function normalizeKeywordsInput(values) {
-  if (Array.isArray(values)) {
-    return values;
-  }
-  if (typeof values === 'string') {
-    return values.split(',');
-  }
-  return [];
-}
-
-function cleanKeywords(values, limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT) {
-  const keywordValues = normalizeKeywordsInput(values);
-  if (keywordValues.length === 0) {
-    return [];
-  }
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
-  return [...new Set(
-    keywordValues
-      .map(value => String(value || '').trim())
-      .filter(value => {
-        if (value.length < 2) return false;
-        // Remove single words longer than 30 characters (e.g. auto-generated hashes or garbage tokens)
-        if (!value.includes(' ') && value.length > 30) return false;
-        // Remove n-grams with more than 10 words
-        if (value.includes(' ') && value.split(/\s+/).length > 10) return false;
-        return true;
-      })
-  )].slice(0, safeLimit);
-}
-
-function normalizeMetadataKeywordFields(metadata = {}) {
-  const base = metadata && typeof metadata === 'object' ? metadata : {};
-
-  const keywords = normalizeCategorizedKeywords(base.keywords);
-  const allFlat = flattenCategorizedKeywords(keywords);
-
-  const tags = cleanKeywords(base.tags, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
-  const referencedQueries = Array.isArray(base.referencedQueries)
-    ? [...new Set(base.referencedQueries.map(value => String(value || '').trim()).filter(Boolean))]
-    : typeof base.referencedQueries === 'string'
-      ? [...new Set(base.referencedQueries.split(',').map(value => value.trim()).filter(Boolean))]
-      : [];
-
-  // Synonyms regenerated from all flattened keyword tokens
-  const synonyms = cleanKeywords(generateSynonyms(allFlat), Infinity);
-
-  return {
-    ...base,
-    keywords,
-    tags,
-    referencedQueries,
-    synonyms
-  };
-}
-
-function mergeKeywordsPreservingSignals({
-  structuralKeywords = [],
-  modelKeywords = [],
-  lexicalKeywords = [],
-  limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT
-} = {}) {
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
-  const structural = cleanKeywords(structuralKeywords, safeLimit * 2);
-  const model = cleanKeywords(modelKeywords, safeLimit * 2);
-  const lexical = cleanKeywords(lexicalKeywords, safeLimit * 2);
-  const merged = [];
-  let index = 0;
-
-  // Interleave BM25 (model) and markdown (structural) keywords so both sources remain visible.
-  // BM25 keywords come first as requested
-  while (merged.length < safeLimit && (index < model.length || index < structural.length)) {
-    if (index < model.length && !merged.includes(model[index])) {
-      merged.push(model[index]);
-    }
-    if (merged.length >= safeLimit) {
-      break;
-    }
-    if (index < structural.length && !merged.includes(structural[index])) {
-      merged.push(structural[index]);
-    }
-    index += 1;
-  }
-  for (const keyword of lexical) {
-    if (merged.length >= safeLimit) {
-      break;
-    }
-    if (!merged.includes(keyword)) {
-      merged.push(keyword);
-    }
-  }
-
-  // Post-merge: expand compound keywords so each gram also appears as an individual keyword.
-  // This ensures grams are in the stored keywords, not only at search-time normalization.
-  const expanded = [...merged];
-  for (const kw of merged) {
-    if (kw.includes(' ')) {
-      for (const g of kw.split(/\s+/)) {
-        const trimmed = g.replace(/[\s`.,;:!?\-_()\[\]{}<>\/\\@#$%^&*+=~|]/g, '').trim();
-        if (trimmed.length >= 2 && !expanded.includes(trimmed)) expanded.push(trimmed);
-      }
-    }
-    if (/[-_+=$\/]/.test(kw)) {
-      for (const p of kw.split(/[-_+=$\/]+/)) {
-        const trimmed = p.replace(/[\s`.,;:!?\-_()\[\]{}<>\/\\@#$%^&*+=~|]/g, '').trim();
-        const lp = trimmed.toLowerCase();
-        if (lp.length >= 2 && !expanded.includes(lp)) expanded.push(lp);
-      }
-    }
-  }
-  return expanded;
-}
-
-function appendKeywordsToExisting(existingKeywords = [], addedKeywords = [], limit = getKeywordConfig().DEFAULT_KEYWORD_LIMIT) {
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
-  const existing = cleanKeywords(existingKeywords, safeLimit * 2);
-  const additions = cleanKeywords(addedKeywords, safeLimit * 2);
-  const merged = [...existing];
-  for (const keyword of additions) {
-    if (merged.length >= safeLimit) {
-      break;
-    }
-    if (!merged.includes(keyword)) {
-      merged.push(keyword);
-    }
-  }
-  return merged.slice(0, safeLimit);
-}
-
-// ---------------------------------------------------------------------------
-// Categorized keyword helpers
-// ---------------------------------------------------------------------------
-
 /**
- * Groups a flat token array by ngram length.
- * Returns an object keyed by "1gram", "2gram", etc. up to maxNgram.
- */
-function groupByNgramSize(tokens, maxNgram = 4) {
-  const result = {};
-  for (let n = 1; n <= maxNgram; n++) result[`${n}gram`] = [];
-  for (const token of tokens) {
-    const n = Math.min(String(token || '').split(/\s+/).filter(Boolean).length, maxNgram);
-    if (n >= 1) result[`${n}gram`].push(String(token).toLowerCase());
-  }
-  return result;
-}
-
-/**
- * Builds a categorized keyword object from document fields.
- * Categories map directly to ranking weight keys:
- *   title   → NGRAM_WEIGHTS.title (multiplicative for 2gram+, additive for 1gram)
- *   summary → NGRAM_WEIGHTS.summary
- *   content → NGRAM_WEIGHTS.content  (filled in by finalizeBm25Keywords; initial pass
- *             uses structural MD keywords in 1gram)
- *   knowledge_graph → TERM_WEIGHTS.keywords (additive, exact match)
+ * keywords.js — Categorized keyword management for RepoAsk documents.
  *
- * @param {string}   title
- * @param {string}   summaryText     - existing summary (may be empty)
- * @param {string}   markdownContent - full document markdown
- * @param {Object}   [opts]
- * @param {string[]} [opts.bm25Keywords=[]]  - pre-scored BM25 tokens (1–4 gram)
- * @param {string}   [opts.kgMermaid='']     - mermaid knowledge-graph text
+ * Keywords are stored in six named categories:
+ *   title      — sliding-window n-grams of the document title
+ *   structural — n-grams extracted from document title and markdown structure
+ *                (headings, bold text, code identifiers, capital sequences)
+ *   semantic   — keywords produced by LLM annotation (preserved across refreshes)
+ *   bm25       — high-scoring n-gram tokens from BM25 corpus analysis
+ *   kg         — entity tokens extracted from the mermaid knowledge graph
+ *   synonyms   — morphological / pattern expansions of the other keywords
+ *
+ * All keywords are strings of 1–4 space-separated words (n-grams).
+ * Longer n-grams carry higher search weight (see searchWeights.keywords).
  */
-function buildCategorizedKeywords(title, summaryText, markdownContent, opts = {}) {
-  const { bm25Keywords = [], kgMermaid = '' } = opts;
-  const N = getKeywordConfig().DEFAULT_KEYWORD_LIMIT;
+module.exports = function(context) {
+    const { tokenize } = context;
+    const { extractMdKeywords } = require('./md2keywords');
 
-  // Title ngrams — use keyword tokenizer which honours nGramMin/nGramMax options
-  const titleTokens = kwTokenize(String(title || ''), { includeNGrams: true, nGramMin: 1, nGramMax: 3 });
-  const titleBySize = groupByNgramSize(titleTokens, 3);
+    // ── Keyword limits ───────────────────────────────────────────────────────
+    const DEFAULT_KEYWORD_LIMIT = 60;
+    const TOKENIZATION_KEYWORD_LIMIT = 40;
+    const BM25_KEYWORD_LIMIT = 30;
 
-  // Summary ngrams
-  const summaryTokens = kwTokenize(String(summaryText || ''), { includeNGrams: true, nGramMin: 1, nGramMax: 2 });
-  const summaryBySize = groupByNgramSize(summaryTokens, 2);
-
-  // Content: ensure two parts — structural MD keywords + BM25 ngrams over ALL tokens
-  const mdKeywords = extractMdKeywords(String(markdownContent || ''));
-  const mdBySize = groupByNgramSize(mdKeywords, 4);
-
-  // If BM25 tokens weren't provided by caller, generate them from full content using BM25 tokenizer
-  let effectiveBm25 = Array.isArray(bm25Keywords) ? bm25Keywords.slice() : [];
-  if (effectiveBm25.length === 0 && typeof tokenize === 'function') {
-    try {
-      // `tokenize` here refers to BM25 tokenizer injected via context in keywords module
-      effectiveBm25 = tokenize(String(markdownContent || ''));
-    } catch (e) {
-      effectiveBm25 = [];
+    function getKeywordConfig() {
+        return { DEFAULT_KEYWORD_LIMIT, TOKENIZATION_KEYWORD_LIMIT, BM25_KEYWORD_LIMIT };
     }
-  }
 
-  const bm25BySize = groupByNgramSize(effectiveBm25, 4);
+    // ── Per-gram sub-list helpers ────────────────────────────────────────────
 
-  // Knowledge graph entities
-  const kgKeywords = kgMermaid ? extractMermaidKeywords(String(kgMermaid)) : [];
-
-  return {
-    title: {
-      '1gram': cleanKeywords([...new Set(titleBySize['1gram'])], N),
-      '2gram': cleanKeywords([...new Set(titleBySize['2gram'])], N),
-      '3gram': cleanKeywords([...new Set(titleBySize['3gram'])], N)
-    },
-    summary: {
-      '1gram': cleanKeywords([...new Set(summaryBySize['1gram'])], N),
-      '2gram': cleanKeywords([...new Set(summaryBySize['2gram'])], N)
-    },
-    content: {
-      // Content 1gram should always include structural MD tokens (from emphasis/headers/etc.)
-      '1gram': cleanKeywords([...new Set([...(mdBySize['1gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['1gram']])], N),
-      '2gram': cleanKeywords([...new Set([...(mdBySize['2gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['2gram']])], N),
-      '3gram': cleanKeywords([...new Set([...(mdBySize['3gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['3gram']])], N),
-      '4gram': cleanKeywords([...new Set([...(mdBySize['4gram'] || []).map(k => k.toLowerCase()), ...bm25BySize['4gram']])], N)
-    },
-    knowledge_graph: cleanKeywords(kgKeywords.map(k => String(k).toLowerCase()), N)
-  };
-}
-
-/**
- * Normalizes a raw keywords value to a valid categorized object.
- * - New object format: validates each sub-key, initializes missing buckets.
- * - Legacy flat array: placed in the `semantic` category for graceful degradation.
- * - null/undefined: returns an empty structure.
- */
-function normalizeCategorizedKeywords(kw) {
-  const empty = {
-    title:   { '1gram': [], '2gram': [], '3gram': [] },
-    summary: { '1gram': [], '2gram': [] },
-    content: { '1gram': [], '2gram': [], '3gram': [], '4gram': [] },
-    knowledge_graph: [],
-    semantic: []
-  };
-
-  if (Array.isArray(kw)) {
-    // Legacy flat array: preserve as semantic keywords
-    return { ...empty, semantic: cleanKeywords(kw, Infinity) };
-  }
-
-  if (!kw || typeof kw !== 'object') {
-    return empty;
-  }
-
-  const NGRAM_SIZES = {
-    title:   ['1gram', '2gram', '3gram'],
-    summary: ['1gram', '2gram'],
-    content: ['1gram', '2gram', '3gram', '4gram']
-  };
-
-  const result = { ...empty };
-  for (const [cat, sizes] of Object.entries(NGRAM_SIZES)) {
-    const catVal = kw[cat];
-    result[cat] = {};
-    for (const size of sizes) {
-      result[cat][size] = (catVal && !Array.isArray(catVal) && Array.isArray(catVal[size]))
-        ? catVal[size]
-        : [];
+    function emptyGramSlots() {
+        return { '1gram': {}, '2gram': {}, '3gram': {}, '4gram': {} };
     }
-  }
-  result.knowledge_graph = Array.isArray(kw.knowledge_graph) ? kw.knowledge_graph : [];
-  result.semantic = Array.isArray(kw.semantic) ? kw.semantic : [];
-  return result;
-}
 
-/**
- * Returns a deduplicated flat array of all keyword tokens across every category.
- * Handles both new object format and legacy arrays.
- */
-function flattenCategorizedKeywords(keywords) {
-  if (Array.isArray(keywords)) {
-    return [...new Set(keywords.map(k => String(k).toLowerCase()))];
-  }
-  if (!keywords || typeof keywords !== 'object') return [];
-  const result = [];
-  for (const val of Object.values(keywords)) {
-    if (Array.isArray(val)) {
-      val.forEach(k => result.push(String(k).toLowerCase()));
-    } else if (val && typeof val === 'object') {
-      for (const subList of Object.values(val)) {
-        if (Array.isArray(subList)) subList.forEach(k => result.push(String(k).toLowerCase()));
-      }
+    function emptyCategories() {
+        return {
+            title:      emptyGramSlots(),
+            structural: emptyGramSlots(),
+            semantic:   emptyGramSlots(),
+            bm25:       emptyGramSlots(),
+            kg:         emptyGramSlots(),
+            synonyms:   emptyGramSlots()
+        };
     }
-  }
-  return [...new Set(result)];
-}
 
-/**
- * Merges LLM/annotation-generated keywords into the `semantic` bucket of an
- * existing categorized keyword object, preserving all other categories.
- */
-function mergeSemanticKeywords(existingKw, semanticList) {
-  const normalized = normalizeCategorizedKeywords(existingKw);
-  const added = cleanKeywords(semanticList, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
-  normalized.semantic = cleanKeywords(
-    [...new Set([...normalized.semantic, ...added])],
-    getKeywordConfig().DEFAULT_KEYWORD_LIMIT
-  );
-  return normalized;
-}
+    /**
+     * Count the effective gram size of a keyword string.
+     * Space-separated words are counted first; if the result is 1, compound
+     * tokens joined by - _ . + / are counted by their segment count instead,
+     * so "fx-2024-00789" (3 segments) → 3gram, not 1gram.
+     * Keywords with 4+ units all land in '4gram'.
+     */
+    function countGrams(kw) {
+        const spaceCount = kw.trim().split(/\s+/).length;
+        if (spaceCount > 1) return spaceCount;
+        // Single space-word: check for compound separators
+        const segCount = kw.split(/[-_.+/]/).filter(Boolean).length;
+        return segCount > 1 ? segCount : 1;
+    }
 
-  return {
-    getKeywordConfig,
-    buildKeywordOnlyIndexText,
-    normalizeKeywordsInput,
-    cleanKeywords,
-    normalizeMetadataKeywordFields,
-    mergeKeywordsPreservingSignals,
-    appendKeywordsToExisting,
-    extractMermaidKeywords,
-    // Categorized keyword API
-    groupByNgramSize,
-    buildCategorizedKeywords,
-    normalizeCategorizedKeywords,
-    flattenCategorizedKeywords,
-    mergeSemanticKeywords
-  };
+    /**
+     * Build a per-gram-size count-map object from a raw keyword array.
+     * Each occurrence of a keyword is counted, so repeated tokens (e.g. from
+     * a title "fx fx fx trade") produce { '1gram': { 'fx': 3, 'trade': 1 } }.
+     * Keywords shorter than 2 characters are discarded.
+     */
+    function categorizeByNGram(keywords) {
+        const result = emptyGramSlots();
+        const rawList = Array.isArray(keywords) ? keywords : normalizeKeywordsInput(keywords);
+        for (const kw of rawList) {
+            const cleaned = String(kw || '').trim().toLowerCase();
+            if (cleaned.length < 2) continue;
+            const n = countGrams(cleaned);
+            const key = n >= 4 ? '4gram' : `${n}gram`;
+            result[key][cleaned] = (result[key][cleaned] || 0) + 1;
+        }
+        return result;
+    }
+
+    /**
+     * Normalize a single gram-slot value to the count-map format.
+     * Handles three legacy shapes plus the current format:
+     *   - flat array ("[kw,kw,...]")          → categorizeByNGram (counts duplicates)
+     *   - gram-slot w/ arrays ({ '1gram':[] }) → each distinct entry gets count=1
+     *   - gram-slot w/ count maps (new)        → normalize keys to lowercase
+     */
+    function normalizeGramSlot(value) {
+        if (!value) return emptyGramSlots();
+        if (Array.isArray(value)) return categorizeByNGram(value);
+        if (typeof value === 'object') {
+            const result = emptyGramSlots();
+            for (const gram of ['1gram', '2gram', '3gram', '4gram']) {
+                const slot = value[gram];
+                if (!slot) continue;
+                if (Array.isArray(slot)) {
+                    for (const kw of cleanKeywords(slot)) {
+                        result[gram][kw.toLowerCase()] = 1;
+                    }
+                } else if (typeof slot === 'object') {
+                    for (const [k, v] of Object.entries(slot)) {
+                        const key = String(k).toLowerCase().trim();
+                        if (key.length >= 2) result[gram][key] = Number(v) || 1;
+                    }
+                }
+            }
+            return result;
+        }
+        return emptyGramSlots();
+    }
+
+    // ── Normalization helpers ────────────────────────────────────────────────
+
+    /**
+     * Accept keywords as a string ("a, b, c"), array, or null/undefined.
+     * Returns a clean string array.
+     */
+    function normalizeKeywordsInput(keywords) {
+        if (typeof keywords === 'string') {
+            return keywords.split(/[,;|\n]+/).map(k => k.trim()).filter(Boolean);
+        }
+        if (Array.isArray(keywords)) {
+            return keywords.map(k => String(k || '').trim()).filter(Boolean);
+        }
+        return [];
+    }
+
+    /**
+     * Deduplicate and length-filter keywords; optionally cap the resulting list.
+     * Case-insensitive deduplification; original casing is preserved.
+     */
+    function cleanKeywords(keywords, limit) {
+        const list = normalizeKeywordsInput(keywords);
+        const seen = new Set();
+        const result = [];
+        for (const kw of list) {
+            const lower = kw.toLowerCase();
+            if (lower.length >= 2 && !seen.has(lower)) {
+                seen.add(lower);
+                result.push(kw);
+            }
+        }
+        return typeof limit === 'number' ? result.slice(0, limit) : result;
+    }
+
+    /**
+     * Ensure keywords is a fully-normalised category object where every slot
+     * is a { '1gram': [], '2gram': [], '3gram': [], '4gram': [] } object.
+     * Handles legacy flat-array keywords and the old {structural,semantic,bm25,kg} format.
+     */
+    function normalizeCategorizedKeywords(keywords) {
+        if (Array.isArray(keywords)) {
+            return { ...emptyCategories(), structural: categorizeByNGram(keywords) };
+        }
+        if (!keywords || typeof keywords !== 'object') {
+            return emptyCategories();
+        }
+        return {
+            title:      normalizeGramSlot(keywords.title),
+            structural: normalizeGramSlot(keywords.structural),
+            semantic:   normalizeGramSlot(keywords.semantic),
+            bm25:       normalizeGramSlot(keywords.bm25),
+            kg:         normalizeGramSlot(keywords.kg),
+            synonyms:   normalizeGramSlot(keywords.synonyms)
+        };
+    }
+
+    /**
+     * Return all keywords as a deduplicated flat array (title → structural → semantic → bm25 → kg).
+     * Works with both the new nested gram-slot format and legacy flat arrays/objects.
+     */
+    function flattenCategorizedKeywords(keywords) {
+        if (Array.isArray(keywords)) return cleanKeywords(keywords);
+        if (!keywords || typeof keywords !== 'object') return [];
+        const seen = new Set();
+        const result = [];
+        for (const cat of ['title', 'structural', 'semantic', 'bm25', 'kg', 'synonyms']) {
+            const slot = keywords[cat];
+            if (!slot) continue;
+            const items = Array.isArray(slot)
+                ? cleanKeywords(slot)
+                : ['1gram', '2gram', '3gram', '4gram'].flatMap(g => {
+                    const gs = slot[g];
+                    if (!gs) return [];
+                    if (Array.isArray(gs)) return cleanKeywords(gs);
+                    return typeof gs === 'object' ? Object.keys(gs) : [];
+                });
+            for (const kw of items) {
+                const lower = kw.toLowerCase();
+                if (!seen.has(lower)) { seen.add(lower); result.push(kw); }
+            }
+        }
+        return result;
+    }
+
+    // ── Keyword building ─────────────────────────────────────────────────────
+
+    /**
+     * Build the full categorized keyword object for a document.
+     *
+     * title      — sliding-window n-grams of the document title
+     * structural — md-structure n-grams (headings, bold, code identifiers)
+     * bm25       — supplied BM25-scored n-grams (filled in the second pass)
+     * kg         — entity tokens from the mermaid knowledgeGraph string
+     * semantic   — LLM-produced keywords; pass existingSemantic to preserve them
+     * synonyms   — morphological expansions; pass synonymNGrams (already n-gram object)
+     *
+     * @param {string}   title
+     * @param {string}   summary
+     * @param {string}   content        Markdown document body
+     * @param {{
+     *   bm25Keywords?:     string[],
+     *   kgMermaid?:        string,
+     *   existingSemantic?: string[],
+     *   synonymNGrams?:    { '1gram': string[], '2gram': string[], '3gram': string[], '4gram': string[] }
+     * }} options
+     */
+    /**
+     * Extract entity n-gram tokens from a Mermaid diagram string.
+     * Parses quoted labels, unquoted bracket labels, and CamelCase node IDs
+     * to produce a richer, cleaner token list than raw tokenization of the
+     * full diagram source.
+     */
+    function extractMermaidEntityTokens(mermaidText) {
+        const raw = String(mermaidText || '');
+        if (!raw.trim()) return [];
+        const tokens = [];
+        let m;
+        const quotedLabelRe   = /[\[({]"([^"]+)"/g;
+        const unquotedLabelRe = /[\[({]([A-Za-z][A-Za-z0-9 _-]{1,40})[\])}]/g;
+        const nodeIdRe        = /\b([A-Z][A-Za-z0-9_]{2,})\b/g;
+        while ((m = quotedLabelRe.exec(raw))   !== null) tokens.push(...tokenize(m[1], { includeNGrams: true }));
+        while ((m = unquotedLabelRe.exec(raw)) !== null) tokens.push(...tokenize(m[1], { includeNGrams: true }));
+        while ((m = nodeIdRe.exec(raw))        !== null) tokens.push(...tokenize(m[1], { includeNGrams: true }));
+        return tokens;
+    }
+
+    function buildCategorizedKeywords(title, summary, content, options = {}) {
+        const { bm25Keywords = [], kgMermaid = '', existingSemantic = [], synonymNGrams = null } = options;
+
+        // title: raw 1–4 grams — duplicates preserved so repeated words score higher
+        const titleNGrams = tokenize(String(title || ''), { includeNGrams: true });
+
+        // structural: n-grams from markdown structure (Set-deduplicated by md2keywords, count=1 each)
+        const structuralNGrams = extractMdKeywords(String(content || ''));
+
+        // bm25: pre-scored top-N distinct tokens (count=1 each is intentional)
+        const bm25NGrams = cleanKeywords(bm25Keywords, BM25_KEYWORD_LIMIT);
+
+        // kg: entity tokens extracted from Mermaid diagram labels/node IDs (with counts)
+        const kgNGrams = kgMermaid ? extractMermaidEntityTokens(kgMermaid) : [];
+
+        // semantic: LLM-annotated keywords + summary-extracted n-grams.
+        // Use cleanKeywords to deduplicate before counting (LLM output is already signal-dense).
+        const summaryNGrams = summary
+            ? tokenize(String(summary), { includeNGrams: true })
+            : [];
+        const semanticNGrams = cleanKeywords(
+            [...existingSemantic, ...summaryNGrams], DEFAULT_KEYWORD_LIMIT);
+
+        return {
+            title:      categorizeByNGram(titleNGrams),
+            structural: categorizeByNGram(structuralNGrams),
+            semantic:   categorizeByNGram(semanticNGrams),
+            bm25:       categorizeByNGram(bm25NGrams),
+            kg:         categorizeByNGram(kgNGrams),
+            synonyms:   synonymNGrams ? normalizeGramSlot(synonymNGrams) : emptyGramSlots()
+        };
+    }
+
+    // ── Merge helpers ────────────────────────────────────────────────────────
+
+    /**
+     * Replace (only) the semantic slot with new LLM keywords.
+     * All other categories are preserved.
+     */
+    function mergeSemanticKeywords(keywords, semanticKeywords, limit = DEFAULT_KEYWORD_LIMIT) {
+        const normalized = normalizeCategorizedKeywords(keywords);
+        return {
+            ...normalized,
+            semantic: categorizeByNGram(cleanKeywords(semanticKeywords, limit))
+        };
+    }
+
+    /**
+     * Merge structural + lexical keyword arrays while preserving signal order.
+     * Returns a categorized object with merged keywords in the structural slot.
+     */
+    function mergeKeywordsPreservingSignals({ structuralKeywords = [], lexicalKeywords = [], limit = DEFAULT_KEYWORD_LIMIT } = {}) {
+        const merged = cleanKeywords([...structuralKeywords, ...lexicalKeywords], limit);
+        return { ...emptyCategories(), structural: categorizeByNGram(merged) };
+    }
+
+    /**
+     * Append new keywords to an existing flat keyword list (no duplicates).
+     */
+    function appendKeywordsToExisting(existing, newKws, limit = DEFAULT_KEYWORD_LIMIT) {
+        return cleanKeywords([...cleanKeywords(existing), ...cleanKeywords(newKws)], limit);
+    }
+
+    // ── Metadata normalization ────────────────────────────────────────────────
+
+    /**
+     * Ensure the `keywords` field on a metadata object is always a categorized
+     * object.  Legacy flat-array keywords are migrated into the structural slot.
+     * Legacy top-level `synonyms` array/object is migrated into `keywords.synonyms`
+     * and the top-level field is removed.
+     */
+    function normalizeMetadataKeywordFields(metadata) {
+        if (!metadata) return metadata;
+        const kws = normalizeCategorizedKeywords(metadata.keywords);
+        // Migrate legacy top-level synonyms into keywords.synonyms when the slot is empty
+        if (metadata.synonyms !== undefined) {
+            const hasExisting = Object.values(kws.synonyms).some(obj => typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length > 0);
+            if (!hasExisting) {
+                kws.synonyms = normalizeGramSlot(metadata.synonyms);
+            }
+        }
+        const result = { ...metadata, keywords: kws };
+        delete result.synonyms;   // remove legacy top-level field
+        return result;
+    }
+
+    /**
+     * Produce a plain-text string of all keywords + tags for building a
+     * search index entry.  Used to construct keyword-only index lines.
+     */
+    function buildKeywordOnlyIndexText(metadata) {
+        const all = flattenCategorizedKeywords(metadata?.keywords);
+        const tags = Array.isArray(metadata?.tags) ? metadata.tags : [];
+        return [...all, ...tags].join(' ');
+    }
+
+    return {
+        getKeywordConfig,
+        buildCategorizedKeywords,
+        normalizeCategorizedKeywords,
+        flattenCategorizedKeywords,
+        cleanKeywords,
+        normalizeMetadataKeywordFields,
+        buildKeywordOnlyIndexText,
+        mergeKeywordsPreservingSignals,
+        appendKeywordsToExisting,
+        mergeSemanticKeywords,
+        normalizeKeywordsInput
+    };
 };

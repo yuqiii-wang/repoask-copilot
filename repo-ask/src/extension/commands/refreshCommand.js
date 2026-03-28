@@ -399,8 +399,6 @@ module.exports = function createRefreshCommand(deps) {
                 if (metadataList.length > 0) {
                     // This will rebuild the BM25 keywords for all documents
                     await documentService.finalizeBm25KeywordsForDocuments(metadataList.map(m => m.id));
-                    // Also call rankLocalDocuments to ensure any other indexes are refreshed
-                    documentService.rankLocalDocuments('');
                     console.log('Full BM25 index refresh completed successfully');
                 }
                 sidebar.setSidebarSyncStatus('Document index refreshed successfully');

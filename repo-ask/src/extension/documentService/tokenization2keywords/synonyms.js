@@ -183,6 +183,18 @@ function camelCaseToDashed(camelCase) {
         .toLowerCase();
 }
 
+/**
+ * Count the effective gram size of a synonym string.
+ * Space-separated words first; for single-word tokens check compound separators.
+ * e.g. "fx-2024-00789" (3 segments) → 3, "risk manager" → 2.
+ */
+function countGrams(kw) {
+    const spaceCount = String(kw || '').trim().split(/\s+/).length;
+    if (spaceCount > 1) return spaceCount;
+    const segCount = kw.split(/[-_.+/]/).filter(Boolean).length;
+    return segCount > 1 ? segCount : 1;
+}
+
 function generateSynonyms(keywords) {
     if (!Array.isArray(keywords) || keywords.length === 0) {
         return [];
@@ -257,9 +269,17 @@ function generateSynonyms(keywords) {
         }
     }
 
-    return [...expanded]
-        .filter(word => !keywords.includes(word))
-        .slice(0, 80);
+    const result = { '1gram': [], '2gram': [], '3gram': [], '4gram': [] };
+    for (const syn of [...expanded].filter(word => !keywords.includes(word))) {
+        const n = countGrams(syn);
+        const key = n >= 4 ? '4gram' : `${n}gram`;
+        result[key].push(syn);
+    }
+    // cap each bucket
+    for (const key of Object.keys(result)) {
+        result[key] = result[key].slice(0, 25);
+    }
+    return result;
 }
 
 module.exports = {

@@ -139,19 +139,20 @@ function normalizeStoredMetadataSchema(docId, metadata) {
             ? [...new Set(base.referencedQueries.split(',').map(value => value.trim()).filter(Boolean))]
             : [];
 
-    return {
+    const result = {
         ...base,
         id: base.id !== undefined && base.id !== null ? base.id : pageIdToId(docId),
         keywords: (base.keywords && typeof base.keywords === 'object' && !Array.isArray(base.keywords))
             ? base.keywords
             : (Array.isArray(base.keywords) ? base.keywords : {}),
-        synonyms: Array.isArray(base.synonyms) ? base.synonyms : [],
         tags: Array.isArray(base.tags) ? base.tags : [],
         referencedQueries: normalizedReferencedQueries,
         summary: typeof base.summary === 'string' ? base.summary : '',
         feedback: typeof base.feedback === 'string' ? base.feedback : '',
         knowledgeGraph: typeof base.knowledgeGraph === 'string' ? base.knowledgeGraph : ''
     };
+    delete result.synonyms;  // legacy field — synonyms now live in keywords.synonyms
+    return result;
 }
 
 function pageIdToId(docId) {

@@ -138,37 +138,22 @@
           "type": "object",
           "default": {
             "WHOLE_QUERY_WEIGHTS": {
-              "id": 50,
-              "title": 35,
-              "keywords": 8,
-              "tags": 6,
-              "type": 4,
-              "referencedExact": 40,
-              "referencedPartial": 20
+              "id": 50, "title": 35, "keywords": 8, "tags": 6, "type": 4,
+              "referencedExact": 40, "referencedPartial": 20
             },
             "TERM_WEIGHTS": {
-              "id": 3,
-              "title": 5,
-              "keywords": 1.5,
-              "tags": 1.2,
-              "type": 1,
-              "referenced": 4
+              "id": 3, "title": 5, "keywords": 1.5, "tags": 1.2, "type": 1, "referenced": 4
             },
-            "NGRAM_WEIGHTS": {
-              "title": 12,
-              "summary": 2,
-              "content": 4
-            },
-            "BM25_NGRAM_WEIGHTS": {
-              "1gram": 1.0,
-              "2gram": 1.5,
-              "3gram": 2.0,
-              "4gram": 2.5
+            "keywords": {
+              "title":      { "1gram": 10, "2gram": 20, "3gram": 30, "4gram": 40 },
+              "structural": { "1gram": 5,  "2gram": 8,  "3gram": 12, "4gram": 16 },
+              "semantic":   { "1gram": 4,  "2gram": 7,  "3gram": 10, "4gram": 14 },
+              "bm25":       { "1gram": 6,  "2gram": 10, "3gram": 14, "4gram": 18 },
+              "kg":         { "1gram": 3,  "2gram": 5,  "3gram": 8,  "4gram": 11 },
+              "synonyms":   { "1gram": 2,  "2gram": 4,  "3gram": 6,  "4gram": 8  }
             },
             "KNOWLEDGE_GRAPH_WEIGHTS": {
-              "entityTraversalBoost": 0.25,
-              "sharedTopicBoost": 0.15,
-              "maxHops": 1
+              "entityTraversalBoost": 0.25, "sharedTopicBoost": 0.15, "maxHops": 1
             }
           },
           "description": "Ranking search weights for local documents."
@@ -282,6 +267,8 @@
     "@babel/generator": "^7.29.1",
     "@babel/parser": "^7.29.0",
     "@babel/traverse": "^7.29.0",
+    "@langchain/core": "^1.1.35",
+    "langchain": "^1.2.36",
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
     "markdown-it": "^14.1.1",

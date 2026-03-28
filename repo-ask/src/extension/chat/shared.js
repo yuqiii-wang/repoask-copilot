@@ -90,13 +90,13 @@ exports.selectDefaultChatModel = async function selectDefaultChatModel(vscodeApi
         return options.request.model;
     }
 
-    const models = await exports.withTimeout(
-        vscodeApi.lm.selectChatModels({}),
+    const gpt5MiniModels = await exports.withTimeout(
+        vscodeApi.lm.selectChatModels({ family: 'gpt-5-mini' }),
         exports.LLM_RESPONSE_TIMEOUT_MS,
         []
     );
 
-    const fallbackModel = models?.[0] || null;
+    const fallbackModel = gpt5MiniModels?.[0] || null;
     if (fallbackModel) {
         console.log(`[RepoAsk] Selected fallback chat model: ${fallbackModel.name || fallbackModel.id || 'unknown'}`);
     } else {
