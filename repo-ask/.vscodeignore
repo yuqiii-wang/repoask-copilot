@@ -1,5 +1,13 @@
-out/
 .vscode/
 *.log
 dummy-servers/
-google_20k_eng_words.txt
+*.ts
+tsconfig.json
+.eslintrc.json
+out/*.map
+out/index.js.map
+out/sidebar/*.map
+out/sidebar/*.d.ts
+out/sidebar/*.d.ts.map
+nohup.out
+.github/

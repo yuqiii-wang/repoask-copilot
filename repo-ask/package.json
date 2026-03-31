@@ -15,13 +15,19 @@
     "onChatParticipant:repoask",
     "onLanguageModelTool:repoask_doc_check"
   ],
-  "main": "index.js",
+  "main": "out/index.js",
   "contributes": {
     "chatParticipants": [
       {
         "id": "repoask",
         "name": "repoask",
-        "description": "RepoAsk chat for general questions from the document store"
+        "description": "RepoAsk chat for general questions from the document store",
+        "commands": [
+          {
+            "name": "skill",
+            "description": "Find the most relevant skill doc from your docstore and run it against your query"
+          }
+        ]
       }
     ],
     "languageModelTools": [
@@ -187,30 +193,155 @@
               "type": "number",
               "description": "Growth factor for BM25 keyword limit based on document length. The actual BM25 keyword limit for a document is calculated as BM25_KEYWORD_LIMIT + log(document_length) * BM25_KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR."
             },
-             "BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR": {
+            "BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR": {
               "type": "number",
               "description": "Growth factor for BM25 keyword limit based on total number of documents. The actual BM25 keyword limit is further increased by log(total_document_count) * BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR to allow more keywords as the document store grows."
-             }
+            }
           }
         },
         "repoAsk.skipWords": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [
-            "and", "or", "but", "if", "then", "else", "when", "at", "by", "for", "with", "without",
-            "on", "in", "to", "from", "of", "as", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "will", "would", "shall", "should", "can",
-            "get", "set", "let", "make", "go", "come", "see", "look", "know", "think", "say", "tell",
-            "ask", "answer", "help", "use", "used", "using", "need", "want",
-            "require", "include", "check", "checking", "investigate", "investigating",
-            "try", "trying", "run", "running", "investigation", "review", "reviewing", "discuss", "discussing", "discussion",
-            "could", "may", "might", "must", "a", "an", "the", "it", "this", "that", "these", "those",
-            "i", "you", "he", "she", "they", "we", "me", "him", "her", "them", "us", "my", "your", "his",
-            "its", "our", "their", "mine", "yours", "hers", "ours", "theirs", "what", "which", "who", "whom", "whose",
-            "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
-            "not", "only", "own", "same", "so", "than", "too", "very", "s", "t",
-            "just", "don", "now"
-        ],
+            "and",
+            "or",
+            "but",
+            "if",
+            "then",
+            "else",
+            "when",
+            "at",
+            "by",
+            "for",
+            "with",
+            "without",
+            "on",
+            "in",
+            "to",
+            "from",
+            "of",
+            "as",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "shall",
+            "should",
+            "can",
+            "get",
+            "set",
+            "let",
+            "make",
+            "go",
+            "come",
+            "see",
+            "look",
+            "know",
+            "think",
+            "say",
+            "tell",
+            "ask",
+            "answer",
+            "help",
+            "use",
+            "used",
+            "using",
+            "need",
+            "want",
+            "require",
+            "include",
+            "check",
+            "checking",
+            "investigate",
+            "investigating",
+            "try",
+            "trying",
+            "run",
+            "running",
+            "investigation",
+            "review",
+            "reviewing",
+            "discuss",
+            "discussing",
+            "discussion",
+            "could",
+            "may",
+            "might",
+            "must",
+            "a",
+            "an",
+            "the",
+            "it",
+            "this",
+            "that",
+            "these",
+            "those",
+            "i",
+            "you",
+            "he",
+            "she",
+            "they",
+            "we",
+            "me",
+            "him",
+            "her",
+            "them",
+            "us",
+            "my",
+            "your",
+            "his",
+            "its",
+            "our",
+            "their",
+            "mine",
+            "yours",
+            "hers",
+            "ours",
+            "theirs",
+            "what",
+            "which",
+            "who",
+            "whom",
+            "whose",
+            "all",
+            "any",
+            "both",
+            "each",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "no",
+            "nor",
+            "not",
+            "only",
+            "own",
+            "same",
+            "so",
+            "than",
+            "too",
+            "very",
+            "s",
+            "t",
+            "just",
+            "don",
+            "now"
+          ],
           "description": "Additional words to exclude from keyword generation. These are merged with the built-in stop word list (conjunctions, pronouns, common verbs, etc.). Applies to 1-gram keyword entries across all keyword categories."
         },
         "repoAsk.logActionConfluenceUrl": {
@@ -227,22 +358,64 @@
           "type": "object",
           "default": {
             "WHOLE_QUERY_WEIGHTS": {
-              "id": 50, "title": 35, "keywords": 8, "tags": 6, "type": 4,
-              "referencedExact": 40, "referencedPartial": 20
+              "id": 50,
+              "title": 35,
+              "keywords": 8,
+              "tags": 6,
+              "type": 4,
+              "referencedExact": 40,
+              "referencedPartial": 20
             },
             "TERM_WEIGHTS": {
-              "id": 5, "title": 3, "keywords": 1, "tags": 4, "type": 3, "referenced": 4
+              "id": 5,
+              "title": 3,
+              "keywords": 1,
+              "tags": 4,
+              "type": 3,
+              "referenced": 4
             },
             "keywords": {
-              "title":      { "1gram": 10, "2gram": 20, "3gram": 30, "4gram": 40 },
-              "structural": { "1gram": 5,  "2gram": 8,  "3gram": 12, "4gram": 16 },
-              "semantic":   { "1gram": 4,  "2gram": 7,  "3gram": 10, "4gram": 14 },
-              "bm25":       { "1gram": 6,  "2gram": 10, "3gram": 14, "4gram": 18 },
-              "kg":         { "1gram": 3,  "2gram": 5,  "3gram": 8,  "4gram": 11 },
-              "synonyms":   { "1gram": 2,  "2gram": 4,  "3gram": 6,  "4gram": 8  }
+              "title": {
+                "1gram": 10,
+                "2gram": 20,
+                "3gram": 30,
+                "4gram": 40
+              },
+              "structural": {
+                "1gram": 5,
+                "2gram": 8,
+                "3gram": 12,
+                "4gram": 16
+              },
+              "semantic": {
+                "1gram": 4,
+                "2gram": 7,
+                "3gram": 10,
+                "4gram": 14
+              },
+              "bm25": {
+                "1gram": 6,
+                "2gram": 10,
+                "3gram": 14,
+                "4gram": 18
+              },
+              "kg": {
+                "1gram": 3,
+                "2gram": 5,
+                "3gram": 8,
+                "4gram": 11
+              },
+              "synonyms": {
+                "1gram": 2,
+                "2gram": 4,
+                "3gram": 6,
+                "4gram": 8
+              }
             },
             "KNOWLEDGE_GRAPH_WEIGHTS": {
-              "entityTraversalBoost": 0.25, "sharedTopicBoost": 0.15, "maxHops": 1
+              "entityTraversalBoost": 0.25,
+              "sharedTopicBoost": 0.15,
+              "maxHops": 1
             }
           },
           "description": "Ranking search weights for local documents."
@@ -334,18 +507,28 @@
     }
   },
   "scripts": {
-    "lint": "eslint .",
-    "pretest": "npm run lint",
+    "compile": "node build.js",
+    "watch": "node build.js --watch",
+    "lint": "eslint src",
+    "pretest": "npm run compile",
     "test": "node ./test/runTest.js",
-    "compile": "echo Compile completed"
+    "vsce:package": "npm run compile && vsce package --allow-missing-repository"
   },
   "devDependencies": {
+    "@types/axios": "^0.14.0",
+    "@types/cheerio": "^0.22.31",
     "@types/glob": "^8.0.3",
+    "@types/markdown-it": "^13.0.7",
     "@types/mocha": "^10.0.1",
     "@types/node": "16.x",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
     "@types/vscode": "^1.106.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.2",
     "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.4",
     "eslint": "^8.40.0",
     "glob": "^8.1.0",
     "mocha": "^10.2.0",
@@ -357,9 +540,9 @@
     "@babel/parser": "^7.29.0",
     "@babel/traverse": "^7.29.0",
     "@langchain/core": "^1.1.35",
-    "langchain": "^1.2.36",
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
+    "langchain": "^1.2.36",
     "markdown-it": "^14.1.1",
     "turndown": "^7.2.2"
   }

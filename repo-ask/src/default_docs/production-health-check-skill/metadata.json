@@ -1,0 +1,172 @@
+{
+  "id": "production-health-check-skill",
+  "title": "Production Health Check Skill",
+  "summary": "Provides Python scripts and guidance for running HTTP health checks against production service endpoints and fetching recent logs. Designed for on-call engineers, CI/CD pipelines, and runbooks.",
+  "type": "skill",
+  "author": "Platform Engineering",
+  "tags": [
+    "production",
+    "health-check",
+    "monitoring",
+    "logging",
+    "scripts",
+    "python",
+    "ops",
+    "runbook",
+    "on-call"
+  ],
+  "keywords": {
+    "title": {
+      "1gram": {
+        "production": 1,
+        "health": 1,
+        "check": 1,
+        "skill": 1
+      },
+      "2gram": {
+        "production health": 1,
+        "health check": 1
+      },
+      "3gram": {
+        "production health check": 1
+      },
+      "4gram": {
+        "production health check skill": 1
+      }
+    },
+    "structural": {
+      "1gram": {
+        "usage": 1,
+        "security": 1,
+        "integration": 1,
+        "scripts": 2,
+        "logs": 2,
+        "health": 2,
+        "check": 2,
+        "production": 2,
+        "monitoring": 1
+      },
+      "2gram": {
+        "health check": 2,
+        "health checks": 1,
+        "recent logs": 1,
+        "status codes": 1,
+        "on-call": 1,
+        "api health": 1
+      },
+      "3gram": {
+        "production health checks": 1,
+        "api health checks": 1,
+        "recent log lines": 1
+      },
+      "4gram": {}
+    },
+    "semantic": {
+      "1gram": {
+        "health": 3,
+        "check": 3,
+        "production": 3,
+        "logs": 2,
+        "monitoring": 2,
+        "scripts": 2,
+        "endpoint": 2,
+        "latency": 1,
+        "python": 2,
+        "requests": 1,
+        "runbook": 1,
+        "authentication": 1,
+        "security": 1,
+        "api": 2,
+        "status": 2,
+        "timeout": 1,
+        "on-call": 1
+      },
+      "2gram": {
+        "health check": 3,
+        "production services": 2,
+        "status codes": 1,
+        "log lines": 1,
+        "api endpoint": 1,
+        "on-call engineers": 1,
+        "ci/cd pipelines": 1,
+        "health endpoint": 1,
+        "json validation": 1,
+        "http requests": 1
+      },
+      "3gram": {
+        "production health check": 2,
+        "health check scripts": 1,
+        "recent log retrieval": 1,
+        "api health status": 1,
+        "on-call runbook usage": 1
+      },
+      "4gram": {
+        "production health check skill": 1,
+        "http health endpoint checks": 1
+      }
+    },
+    "bm25": {
+      "1gram": {},
+      "2gram": {},
+      "3gram": {},
+      "4gram": {}
+    },
+    "kg": {
+      "1gram": {
+        "scripts": 1,
+        "endpoint": 1,
+        "logs": 1,
+        "latency": 1,
+        "status": 1,
+        "timeout": 1,
+        "authentication": 1,
+        "monitoring": 1
+      },
+      "2gram": {
+        "health check": 1,
+        "fetch logs": 1,
+        "status codes": 1,
+        "api endpoint": 1,
+        "on-call": 1
+      },
+      "3gram": {},
+      "4gram": {}
+    },
+    "synonyms": {
+      "1gram": {
+        "healthcheck": 1,
+        "uptime": 1,
+        "liveness": 1,
+        "readiness": 1,
+        "probe": 1,
+        "ping": 1,
+        "diagnostics": 1,
+        "observability": 1,
+        "alerting": 1,
+        "pagerduty": 1,
+        "opsgenie": 1,
+        "p1": 1,
+        "p2": 1
+      },
+      "2gram": {
+        "health probe": 1,
+        "log tailing": 1,
+        "on call": 1
+      },
+      "3gram": {},
+      "4gram": {}
+    }
+  },
+  "referencedQueries": [
+    "production health check",
+    "check service endpoint health",
+    "fetch production logs",
+    "run health check scripts",
+    "production service monitoring",
+    "api health status",
+    "on-call health check runbook",
+    "production log retrieval"
+  ],
+  "knowledgeGraph": "graph TD\n  A[On-Call / CI-CD] --> B{Run health_check.py}\n  B -->|HTTP GET| C[Health Endpoint]\n  C --> D[Status Code]\n  C --> E[Latency]\n  C --> F[JSON Validation]\n  D & E & F --> G{All OK?}\n  G -->|Yes| H[Service Healthy]\n  G -->|No| I[Escalate / Alert]\n  A --> J{Run get_logs.py}\n  J -->|HTTP GET| K[Logs Endpoint]\n  K --> L[Recent Log Lines]\n  L --> M[Investigate]\n  I --> M\n  M --> N[Runbook / Postmortem]",
+  "last_updated": "2026-03-31"
+}

@@ -257,6 +257,52 @@ body {
     cursor: pointer;
 }
 
+/* Split button: "Add to Skills" main + arrow dropdown */
+.split-btn-group {
+    position: relative;
+    display: inline-flex;
+}
+
+.split-btn-group .split-btn-main {
+    border-radius: 4px 0 0 4px;
+    border-right: none;
+}
+
+.split-btn-group .split-btn-arrow {
+    border-radius: 0 4px 4px 0;
+    padding: 4px 6px;
+    font-size: 10px;
+}
+
+.split-btn-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 100;
+    background: var(--vscode-menu-background, var(--vscode-editor-background));
+    border: 1px solid var(--vscode-editorWidget-border);
+    border-radius: 4px;
+    min-width: 140px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.split-btn-dropdown .dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 12px;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.split-btn-dropdown .dropdown-item:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
 .action-btn:hover:enabled {
     background: var(--vscode-list-hoverBackground);
     border-color: var(--vscode-focusBorder);
@@ -296,7 +342,8 @@ body {
     background: var(--vscode-editor-background);
     color: var(--vscode-foreground);
     white-space: normal;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow: auto;
     overflow-wrap: anywhere;
     font-family: var(--vscode-editor-font-family);
@@ -545,6 +592,19 @@ body.is-resizing {
     padding-bottom: 6px;
 }
 
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    padding: 4px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
 .icon-btn:hover {
     background: var(--vscode-toolbar-hoverBackground);
     border-radius: 4px;
@@ -558,16 +618,12 @@ body.is-resizing {
 /* Feedback Section */
 .feedback-section {
     width: 100%;
-    height: 100%;
-    min-height: 100%;
     padding: 10px;
     background: var(--vscode-editor-background);
     border: 1px solid var(--vscode-editorWidget-border);
     border-radius: 6px;
-    overflow: auto;
     display: flex;
     flex-direction: column;
-    grid-row: 3 / 5;
 }
 
 .feedback-header {

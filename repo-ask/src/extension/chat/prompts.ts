@@ -1,0 +1,401 @@
+import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+import { ALLOWED_MODES, DOC_CHECK_TOOL_DESCRIPTION } from '../tools/vsCodeTools';
+
+/**
+ * Shared prompt templates and tool descriptions for the RepoAsk agent.
+ *
+ * Single source of truth for all LLM instructions so that agentTools.js,
+ * generalAnswer.js, and docCheckTool.js stay consistent without repeating strings.
+ */
+
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 1 — Investigation agent system prompt
+// Uses MessagesPlaceholder for injected conversation history.
+// ─────────────────────────────────────────────────────────────────────────────
+const AGENT_SYSTEM_PROMPT = [
+    'You are RepoAsk Doc Agent. Your goal is to help the user answer questions from the local document store.',
+    'Wait for tool results before drawing conclusions.',
+    '',
+    'RULES:',
+    '- The "Initial Ranked Documents" section below already contains pre-ranked doc IDs. Use those IDs directly.',
+    '- FIRST: Check the user query for an explicit Confluence page ID (numeric), Jira ticket key (e.g. PROJ-123), or direct URL.',
+    '  If found, call the tool with mode="id_2_content" and put that ID or key in the ids array immediately.',
+    '- OTHERWISE: Call the tool once with mode="id_2_content_partial" using the IDs from "Initial Ranked Documents".',
+    '- Escalate to mode="id_2_content" only for a specific doc that looks clearly relevant.',
+    '- For advanced navigation, use mode="id_2_metadata_4_summary_kg" to explore summaries and knowledge graph links.',
+    '- If none of the docs are relevant, respond: "No relevant documents found. Try Advanced Doc Search."',
+    '- You MUST NOT hallucinate information not present in retrieved documents.',
+    '- Identify relevant documents; include their IDs and URLs in your analysis.',
+    '',
+    '## Attached Files and Code Context:\n{workspacePromptContext}',
+    '',
+    '## Initial Ranked Documents (use these IDs to start reading):\n{initialRankedContext}'
+].join('\n');
+
+/**
+ * Build the Phase 1 ChatPromptTemplate.
+ * Includes a MessagesPlaceholder for injected conversation history before the
+ * current human turn, giving the agent full session context.
+ *
+ * Template variables: workspacePromptContext, initialRankedContext, history, prompt
+ *
+ * @returns {ChatPromptTemplate}
+ */
+function buildPhase1Template() {
+    return ChatPromptTemplate.fromMessages([
+        ['system', AGENT_SYSTEM_PROMPT],
+        new MessagesPlaceholder('history'),
+        ['human', '{prompt}']
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — Synthesis prompt (plain string, streamed directly to VS Code LM)
+// ─────────────────────────────────────────────────────────────────────────────
+const SYNTHESIS_SYSTEM = [
+    'You are an expert technical editor.',
+    'Process the raw observations from a document search and produce a clear, concise final answer.',
+    '- Be concise. Use bullet points or short paragraphs.',
+    '- Include only sources actually used in your answer; drop irrelevant references.',
+    '- You MUST include a clickable Markdown link for the most relevant document.',
+    '- At the very bottom output exactly: `[TOP_DOC_URL: <url>, TOP_DOC_ID: <id>]`',
+    '- If no documents were relevant, state that clearly and output `[TOP_DOC_URL: [NO_URL], TOP_DOC_ID: [NO_ID]]`.'
+].join('\n');
+
+/**
+ * Build the Phase 2 synthesis prompt string.
+ * @param {string} rawObservations - Aggregated first-round agent output
+ * @param {string} userPrompt      - Original user question
+ * @returns {string}
+ */
+function buildPhase2Prompt(rawObservations: string, userPrompt: string) {
+    return [
+        SYNTHESIS_SYSTEM,
+        '',
+        '--- RAW INTERNAL OBSERVATIONS ---',
+        rawObservations || '(no observations)',
+        '--- END RAW INTERNAL OBSERVATIONS ---',
+        '',
+        `User question: ${userPrompt}`
+    ].join('\n\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partial content note — appended when doc content is truncated for scanning
+// ─────────────────────────────────────────────────────────────────────────────
+const PARTIAL_CONTENT_NOTE =
+    "[Note]: This is partial content. If the partial content is likely related to the user query, MUST read full content using mode 'id_2_content' with the same doc ID.";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Confluence ID extractor (llm.js — extractConfluenceIdentifierWithLlm)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {{ promptContext: string, rawInput: string }} vars
+ * @returns {string}
+ */
+function buildConfluenceIdExtractorPrompt({ promptContext, rawInput }: { promptContext: string; rawInput: string }) {
+    return [
+        'You are a parser for Confluence sync arguments.',
+        'From the SOURCE text, extract only one of the following if present: (1) full Confluence HTTP(S) link, (2) numeric Confluence page id, or (3) exact page title phrase.',
+        'If none is present, return an empty string.',
+        'Return valid JSON only with shape: {"arg":"..."}.',
+        promptContext
+            ? `Workspace prompt context:\n${promptContext}`
+            : 'Workspace prompt context: (none)',
+        `SOURCE: ${rawInput}`
+    ].join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Knowledge graph builder (llm.js — generateKnowledgeGraph)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {{ queryList: string, primaryContent: string, secondaryContent: string, existingMermaid?: string }} vars
+ * @returns {string}
+ */
+function buildKnowledgeGraphPrompt({ queryList, primaryContent, secondaryContent, existingMermaid, conversationSummary }: { queryList: string; primaryContent: string; secondaryContent: string; existingMermaid?: string; conversationSummary?: string }) {
+    const parts = [
+        'You are a knowledge graph builder that outputs Mermaid diagram syntax.',
+        'Produce a BRIEF, FOCUSED graph — quality over quantity. Maximum 5–8 nodes total.',
+        '',
+        '## Entity Extraction Rules',
+        '1. The PRIMARY CONTENT is the source document — make it the central node.',
+        '2. From PRIMARY CONTENT, extract the 2 MOST IMPORTANT entities/concepts/systems mentioned. Only those that are explicitly discussed or critical to understanding the document.',
+        '3. From each SECONDARY CONTENT source (if any), extract the 1–2 most important entities referenced in that source only. Place them in a dedicated subgraph for that source.',
+        '4. Do NOT extract every term, framework, or technology mentioned. Extract ONLY the core entities central to the content.',
+        '5. If primary or secondary content lacks meaningful entities to connect, use a single node for the document itself instead.',
+        '',
+        '## Edge Label Rules',
+        '6. Edge labels must describe the ACTUAL SEMANTIC RELATIONSHIP found in the content between two entities.',
+        '   Infer the label from HOW the entities interact in the content, such as:',
+        '   - Specific APIs or endpoints they use (e.g. "via /api/auth")',
+        '   - Protocols or channels (e.g. "via REST API", "via gRPC", "via message queue")',
+        '   - Conditional triggers or events (e.g. "triggered by event X", "when condition Y is met")',
+        '   - Data flow or dependencies (e.g. "queries database", "calls", "publishes to")',
+        '   - Design patterns or architectural relationships (e.g. "orchestrates", "delegates", "provides")',
+        '   - Be concrete and specific. If the content describes HOW they connect, use that specific mechanism as the edge label.',
+        '   - If no clear mechanism is described, do not include the edge. Only connect entities if the content explicitly shows their relationship.',
+        '',
+        '## Subgraph Organization',
+        '8. All nodes derived from SECONDARY CONTENT (extended/secondary URLs) MUST be placed inside a Mermaid subgraph.',
+        '   Use one subgraph per secondary URL, labelled with a short document name.',
+        '   Example:',
+        '     subgraph Related["Related: DocName"]',
+        '       NodeA[Entity Name]',
+        '     end',
+        ''
+    ];
+
+    if (existingMermaid) {
+        parts.push(
+            '## Existing Knowledge Graph',
+            'Preserve existing cross-reference nodes and edges. Only add new entities from the current content.',
+            'Remove any node that is NOT a cross-reference derived from actual content.',
+            '',
+            '```mermaid',
+            existingMermaid,
+            '```',
+            ''
+        );
+    }
+
+    parts.push(
+        '## Output Format',
+        'Return ONLY a valid Mermaid flowchart diagram (no wrapping markdown code fences, no explanation).',
+        'Start with "graph LR".',
+        'Use short node IDs and quoted labels where needed.',
+        'Use arrow labels for relationships: A -->|implements| B',
+        '',
+        '## Reference Queries',
+        queryList,
+        '',
+        '## Primary Content (source document)',
+        primaryContent || '(none)',
+        '',
+        '## Conversation Summary (additional context about how this document was used)',
+        conversationSummary ? conversationSummary.slice(0, 1000) : '(none)',
+        '',
+        '## Secondary Content (content of related docs)',
+        secondaryContent || '(none)'
+    );
+
+    return parts.join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversation summary rewrite (sidebarController.js)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {{ inputText: string }} vars
+ * @returns {string}
+ */
+function buildSummaryRewritePrompt({ inputText }: any) {
+    return [
+        'You are a helpful assistant that rewrites conversation summaries.',
+        'Rewrite the following conversation summary into a clear, concise, and complete summary.',
+        'Keep all key details, decisions, and action items. Remove filler, redundancy, and unnecessary preamble.',
+        'Aim for the shortest version that preserves all essential information. Return only the rewritten summary text.',
+        '',
+        'Conversation Summary:',
+        inputText
+    ].join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Check code logic chat query (checkCodeLogicCommand.js)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {{ projectContext: string, workflowSummary: string, userQuestion: string }} vars
+ * @returns {string}
+ */
+function buildCheckCodeLogicQuery({ projectContext, workflowSummary, userQuestion }: any) {
+    return [
+        `**Project Directory:** \`${projectContext}\`\n`,
+        'The following is a summarized workflow derived from documentation:',
+        '',
+        `<details><summary>Workflow Summary (Click to expand)</summary>\n\n${workflowSummary}\n\n</details>`,
+        '',
+        '## Task',
+        `Original question that produced the above summary: "${userQuestion}"`,
+        '',
+        'Using the workspace code:',
+        '1. **Fact-check** — Verify whether the workflow described above accurately reflects what the code actually does. Point out any discrepancies.',
+        '2. **Code Logic** — If the description is accurate (or mostly accurate), walk through the actual code logic: identify the relevant files, classes/functions, and execution flow that implement this workflow.',
+    ].join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Advanced Doc Search — evaluation and synthesis prompts
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the per-round evaluation prompt for the Advanced Doc Search agentic loop.
+ * @param {{ query: string, round: number, maxRounds: number, summaryList: string, alreadyReadContent: string, searchTerms: string[] }} vars
+ * @returns {string}
+ */
+function buildAdvancedSearchEvalPrompt({ query, round, maxRounds, summaryList, alreadyReadContent, searchTerms }: any) {
+    return [
+        'You are an agentic document relevance evaluator.',
+        'IMPORTANT: Be extremely concise. No over-thinking. Return ONLY valid JSON — no markdown fences, no prose.',
+        '',
+        `User Query: ${query}`,
+        searchTerms && searchTerms.length > 0
+            ? `Previous search terms: ${searchTerms.join(', ')}`
+            : '',
+        `Round: ${round} of ${maxRounds}`,
+        '',
+        '## Already-read content from relevant docs:',
+        alreadyReadContent || 'None yet.',
+        '',
+        '## Candidate docs (id / title / summary / KG):',
+        summaryList,
+        '',
+        'Evaluate each candidate against the user query and already-read content. Then respond with JSON:',
+        '{',
+        '  "relevantIds": [],   // doc IDs to read full content next (max 4, only IDs not yet read)',
+        '  "irrelevantIds": [], // doc IDs clearly unrelated — skipped for remaining rounds',
+        '  "searchTerms": [],   // 2-4 refined terms for the next round',
+        '  "satisfied": false,  // true when already-read content fully answers the user query',
+        '  "topDocId": "",      // if satisfied: the single most relevant doc ID',
+        '  "topDocUrl": "",     // if satisfied: the URL of that doc (from metadata)',
+        '  "answer": ""         // if satisfied: answer as numbered/bullet steps (NOT a paragraph). cite doc IDs. markdown only.',
+        '}'
+    ].filter(l => l !== '').join('\n');
+}
+
+/**
+ * Build the final synthesis prompt for Advanced Doc Search when no answer was produced during the loop.
+ * @param {{ query: string, contentSummary: string }} vars
+ * @returns {string}
+ */
+function buildAdvancedSearchSynthesisPrompt({ query, contentSummary }: any) {
+    return [
+        'Answer the user query based solely on the document content provided.',
+        'Format rules:',
+        '- Present the answer as a numbered list or bullet steps — NOT a wall of text or long paragraphs.',
+        '- Each step/point should be one concise sentence. Add sub-bullets only when genuinely needed.',
+        '- Cite the doc ID(s) used inline, e.g. [42].',
+        '- Include a Markdown link to the most relevant doc.',
+        'At the bottom output exactly: `[TOP_DOC_URL: <url>, TOP_DOC_ID: <id>]`',
+        'If content is insufficient, state that as a single bullet and output `[TOP_DOC_URL: [NO_URL], TOP_DOC_ID: [NO_ID]]`.',
+        '',
+        `User Query: ${query}`,
+        '',
+        '## Document Content:',
+        contentSummary || '(no content found)'
+    ].join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Query optimizer (advancedDocSearch.js — optimizeQuery)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the query optimization prompt used before the Advanced Doc Search loop.
+ * The LLM infers domain context from an anchor document and the docs overview,
+ * then expands ambiguous abbreviations in the user query or asks for clarification.
+ * @param {{ query: string, anchorContext: string, docsOverview: string }} vars
+ * @returns {string}
+ */
+function buildQueryOptimizePrompt({ query, anchorContext, docsOverview }: any) {
+    const parts = [
+        'You are a domain-aware search query optimizer for a local document store.',
+        'Your task: expand abbreviated or ambiguous terms in the user query based on the domain context.',
+        '',
+        'RULES:',
+        '- Infer the domain ONLY from the anchor document and docs overview — do NOT assume.',
+        '- Expand clear domain abbreviations (e.g., "fx" in a finance store → "foreign exchange").',
+        '- If the query is too ambiguous to expand confidently, set clarificationNeeded=true and write a polite clarificationMessage asking for more context with a concrete example hint.',
+        '- Propose 3–6 additional search keywords that represent the expanded meaning.',
+        '- Return ONLY valid JSON — no markdown fences, no prose.',
+        '',
+    ];
+
+    if (anchorContext) {
+        parts.push(
+            '## Domain Context (anchor document):',
+            anchorContext,
+            '',
+        );
+    }
+
+    parts.push(
+        `## Available Documents Overview (up to 50):`,
+        docsOverview || '(no documents available)',
+        '',
+        `## User Query: ${query}`,
+        '',
+        'Return JSON:',
+        '{',
+        '  "expandedQuery": "<rewritten query with full terms, or original if no expansion needed>",',
+        '  "keywords": ["keyword1", "keyword2"],',
+        '  "clarificationNeeded": false,',
+        '  "clarificationMessage": ""',
+        '}',
+    );
+
+    return parts.join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Template registry — single map to retrieve and populate any template.
+// All entries are (vars) => string so callers can use renderTemplate(key, vars).
+// ─────────────────────────────────────────────────────────────────────────────
+const TEMPLATES = {
+    /** Phase 1 agent system prompt string (variable substitution done via ChatPromptTemplate). */
+    AGENT_SYSTEM:            () => AGENT_SYSTEM_PROMPT,
+    /** Phase 2 synthesis prompt. vars: { rawObservations, userPrompt } */
+    SYNTHESIS:               ({ rawObservations, userPrompt }: any) => buildPhase2Prompt(rawObservations, userPrompt),
+    /** Confluence ID extractor. vars: { promptContext, rawInput } */
+    CONFLUENCE_ID_EXTRACTOR: (vars: any) => buildConfluenceIdExtractorPrompt(vars),
+    /** Knowledge graph builder. vars: { queryList, primaryContent, secondaryContent, existingMermaid? } */
+    KNOWLEDGE_GRAPH:         (vars: any) => buildKnowledgeGraphPrompt(vars),
+    /** Conversation summary rewrite. vars: { inputText } */
+    SUMMARY_REWRITE:         (vars: any) => buildSummaryRewritePrompt(vars),
+    /** Check code logic chat query. vars: { projectContext, workflowSummary, userQuestion } */
+    CHECK_CODE_LOGIC:        (vars: any) => buildCheckCodeLogicQuery(vars),
+    /** Partial content note appended to truncated doc reads. No vars. */
+    PARTIAL_CONTENT_NOTE:    () => PARTIAL_CONTENT_NOTE,
+    /** Advanced doc search evaluation. vars: { query, round, maxRounds, summaryList, alreadyReadContent, searchTerms } */
+    ADVANCED_SEARCH_EVAL:    (vars: any) => buildAdvancedSearchEvalPrompt(vars),
+    /** Advanced doc search synthesis. vars: { query, contentSummary } */
+    ADVANCED_SEARCH_SYNTH:   (vars: any) => buildAdvancedSearchSynthesisPrompt(vars),
+    /** Advanced doc search query optimizer. vars: { query, anchorContext, docsOverview } */
+    QUERY_OPTIMIZE:          (vars: any) => buildQueryOptimizePrompt(vars)
+};
+
+/**
+ * Retrieve and render a named template.
+ * @param {keyof typeof TEMPLATES} key
+ * @param {Object} [vars={}]
+ * @returns {string}
+ */
+function renderTemplate(key: any, vars: any = {}) {
+    const builder = (TEMPLATES as any)[key];
+    if (!builder) throw new Error(`Unknown template key: "${key}"`);
+    return builder(vars);
+}
+
+export { ALLOWED_MODES,
+    DOC_CHECK_TOOL_DESCRIPTION,
+    AGENT_SYSTEM_PROMPT,
+    PARTIAL_CONTENT_NOTE,
+    TEMPLATES,
+    renderTemplate,
+    buildPhase1Template,
+    buildPhase2Prompt,
+    buildConfluenceIdExtractorPrompt,
+    buildKnowledgeGraphPrompt,
+    buildSummaryRewritePrompt,
+    buildCheckCodeLogicQuery,
+    buildAdvancedSearchEvalPrompt,
+    buildAdvancedSearchSynthesisPrompt,
+    buildQueryOptimizePrompt
+};

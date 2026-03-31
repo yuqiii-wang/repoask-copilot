@@ -6,11 +6,13 @@ for port in 8091 8092; do
     [ -n "$pids" ] && kill -9 $pids 2>/dev/null || true
 done
 
+python -m pip install -r requirements.txt
+
 # Build extension
 cd repo-ask
 npm install
 npm run compile
-# npx vsce package
+npx vsce package --allow-missing-repository
 
 # Start servers (on ports 8091 and 8092)
 cd dummy-servers
