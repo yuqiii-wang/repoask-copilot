@@ -273,10 +273,6 @@
         // Handle messages from extension
         window.addEventListener('message', (event) => {
             const message = event.data;
-            if (message?.command === 'populateSummary' && message.summary) {
-                if(typeof populateSummary === 'function') populateSummary(message.summary);
-            }
-            
             // Handle sync completion messages
             if (message?.command === 'syncStatus' || message?.command === 'syncError' || message?.command === 'syncSuccess') {
                 const submitRefreshBtn = document.getElementById('submit-refresh-btn');

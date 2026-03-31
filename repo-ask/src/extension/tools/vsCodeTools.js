@@ -12,8 +12,16 @@
 const vscode = require('vscode');
 
 const _pkg = require('../../../package.json');
-const ALLOWED_MODES = _pkg?.contributes?.languageModelTools?.[0]?.inputSchema?.properties?.mode?.enum
+const _toolEntry = _pkg?.contributes?.languageModelTools?.[0];
+const ALLOWED_MODES = _toolEntry?.inputSchema?.properties?.mode?.enum
     ?? ['id_2_content', 'id_2_metadata', 'id_2_content_partial', 'id_2_metadata_4_summary', 'id_2_metadata_4_summary_kg'];
+const DOC_CHECK_TOOL_DESCRIPTION = [
+    _toolEntry?.modelDescription,
+    _toolEntry?.inputSchema?.properties?.mode?.description,
+    'If searchTerms are provided, ranks and returns matching doc IDs and scores.',
+    'If no ids and no searchTerms, returns all stored metadata.',
+    'If the query contains an explicit Confluence page ID, Jira ticket key, or URL, put it in ids and call mode "id_2_content" directly.'
+].filter(Boolean).join(' ');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utility helpers (previously utils.js)
@@ -113,6 +121,7 @@ module.exports = {
     // Registration
     createLanguageModelTools,
     // Schema
-    ALLOWED_MODES
+    ALLOWED_MODES,
+    DOC_CHECK_TOOL_DESCRIPTION
 };
 

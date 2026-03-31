@@ -12,10 +12,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:repo-ask-documents",
     "onChatParticipant:repoask",
-    "onLanguageModelTool:repoask_doc_check",
-    "onCommand:repo-ask.advancedDocSearch"
+    "onLanguageModelTool:repoask_doc_check"
   ],
   "main": "index.js",
   "contributes": {
@@ -142,6 +140,79 @@
           "default": 0.3,
           "description": "Score threshold ratio for filtering ranked documents. Documents scoring below this fraction of the top score are removed. Range: 0.0–1.0. Lower values keep more documents; higher values are stricter."
         },
+        "repoAsk.keywords": {
+          "type": "object",
+          "default": {
+            "KEYWORD_LIMIT": 100,
+            "KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR": 10
+          },
+          "description": "Keyword extraction limits used during document indexing.",
+          "additionalProperties": false,
+          "properties": {
+            "KEYWORD_LIMIT": {
+              "type": "number",
+              "description": "Maximum number of semantic and structural keywords stored per document."
+            },
+            "KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR": {
+              "type": "number",
+              "description": "Growth factor for keyword limit based on document length. The actual keyword limit for a document is calculated as KEYWORD_LIMIT + log(document_length) * KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR."
+            }
+          }
+        },
+        "repoAsk.bm25": {
+          "type": "object",
+          "default": {
+            "k1": 1.2,
+            "b": 0.75,
+            "BM25_KEYWORD_LIMIT": 30,
+            "BM25_KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR": 10,
+            "BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR": 10
+          },
+          "description": "BM25 scoring parameters used during the second-pass keyword extraction. k1 controls term-frequency saturation (higher = less saturation); b controls document-length normalisation (0 = none, 1 = full). BM25_KEYWORD_LIMIT caps the number of BM25 keywords stored per document.",
+          "additionalProperties": false,
+          "properties": {
+            "k1": {
+              "type": "number",
+              "description": "Term-frequency saturation parameter. Typical range: 1.2-2.0."
+            },
+            "b": {
+              "type": "number",
+              "description": "Document-length normalisation factor. Range: 0.0-1.0."
+            },
+            "BM25_KEYWORD_LIMIT": {
+              "type": "number",
+              "description": "Maximum number of BM25 keywords to store per document."
+            },
+            "BM25_KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR": {
+              "type": "number",
+              "description": "Growth factor for BM25 keyword limit based on document length. The actual BM25 keyword limit for a document is calculated as BM25_KEYWORD_LIMIT + log(document_length) * BM25_KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR."
+            },
+             "BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR": {
+              "type": "number",
+              "description": "Growth factor for BM25 keyword limit based on total number of documents. The actual BM25 keyword limit is further increased by log(total_document_count) * BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR to allow more keywords as the document store grows."
+             }
+          }
+        },
+        "repoAsk.skipWords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "and", "or", "but", "if", "then", "else", "when", "at", "by", "for", "with", "without",
+            "on", "in", "to", "from", "of", "as", "is", "are", "was", "were", "be", "been", "being",
+            "have", "has", "had", "do", "does", "did", "will", "would", "shall", "should", "can",
+            "get", "set", "let", "make", "go", "come", "see", "look", "know", "think", "say", "tell",
+            "ask", "answer", "help", "use", "used", "using", "need", "want",
+            "require", "include", "check", "checking", "investigate", "investigating",
+            "try", "trying", "run", "running", "investigation", "review", "reviewing", "discuss", "discussing", "discussion",
+            "could", "may", "might", "must", "a", "an", "the", "it", "this", "that", "these", "those",
+            "i", "you", "he", "she", "they", "we", "me", "him", "her", "them", "us", "my", "your", "his",
+            "its", "our", "their", "mine", "yours", "hers", "ours", "theirs", "what", "which", "who", "whom", "whose",
+            "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
+            "not", "only", "own", "same", "so", "than", "too", "very", "s", "t",
+            "just", "don", "now"
+        ],
+          "description": "Additional words to exclude from keyword generation. These are merged with the built-in stop word list (conjunctions, pronouns, common verbs, etc.). Applies to 1-gram keyword entries across all keyword categories."
+        },
         "repoAsk.logActionConfluenceUrl": {
           "type": "string",
           "default": "",
@@ -160,7 +231,7 @@
               "referencedExact": 40, "referencedPartial": 20
             },
             "TERM_WEIGHTS": {
-              "id": 3, "title": 5, "keywords": 1.5, "tags": 1.2, "type": 1, "referenced": 4
+              "id": 5, "title": 3, "keywords": 1, "tags": 4, "type": 3, "referenced": 4
             },
             "keywords": {
               "title":      { "1gram": 10, "2gram": 20, "3gram": 30, "4gram": 40 },

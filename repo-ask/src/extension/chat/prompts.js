@@ -6,22 +6,7 @@
  */
 
 const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
-const { ALLOWED_MODES } = require('../tools/vsCodeTools');
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tool description — kept here so agentTools.js (LangChain schema) and
-// docCheckTool.js (VS Code LM registration) both import the same text.
-// ─────────────────────────────────────────────────────────────────────────────
-const DOC_CHECK_TOOL_DESCRIPTION = [
-    'Read documents from the local RepoAsk store (synced from Confluence and Jira).',
-    'If searchTerms are provided, ranks and returns matching doc IDs and scores.',
-    'Use mode "id_2_content_partial" to scan snippets from specific doc IDs.',
-    'Use mode "id_2_content" to read full content by doc IDs.',
-    'Use mode "id_2_metadata_4_summary" to evaluate relevance from titles and summaries.',
-    'Use mode "id_2_metadata_4_summary_kg" for KG-traversal in advanced search.',
-    'If no ids and no searchTerms, returns all stored metadata.',
-    'If the query contains an explicit Confluence page ID, Jira ticket key, or URL, put it in ids and call mode "id_2_content" directly.'
-].join(' ');
+const { ALLOWED_MODES, DOC_CHECK_TOOL_DESCRIPTION } = require('../tools/vsCodeTools');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 1 — Investigation agent system prompt
@@ -200,33 +185,6 @@ function buildKnowledgeGraphPrompt({ queryList, primaryContent, secondaryContent
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Document annotation (annotation.js — generateAnnotationWithLlm)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * @param {{ title: string, parentTopic: string, author: string, keywords: string, tags: string, feedback: string, content: string }} vars
- * @returns {string}
- */
-function buildAnnotationPrompt({ title, parentTopic, author, keywords, tags, feedback, content }) {
-    return [
-        'You are annotating a local Confluence document metadata record.',
-        'Return valid JSON only with shape: {"summary":"...","keywords":"keyword-a, keyword-b"}.',
-        'Summary must be clear, concise, and contain only the most essential information from the source content, in 1-3 sentences maximum. Avoid filler phrases and repetition.',
-        'Keywords must be specific technical terms in one comma-separated string.',
-        'Take existing document keywords (provided below) and filter out non-business-related words or stop words (e.g., "confluence", "jira", "and", "the", "that", etc.).',
-        'Include a few close synonyms or related alternate terms that help retrieval.',
-        `Title: ${title || ''}`,
-        `Topic: ${parentTopic || ''}`,
-        `Author: ${author || ''}`,
-        `Existing Keywords: ${keywords || ''}`,
-        `Existing Tags: ${tags || ''}`,
-        `Existing Feedback: ${feedback || ''}`,
-        'Document markdown content:',
-        content || ''
-    ].join('\n');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Conversation summary rewrite (sidebarController.js)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -396,8 +354,6 @@ const TEMPLATES = {
     CONFLUENCE_ID_EXTRACTOR: (vars) => buildConfluenceIdExtractorPrompt(vars),
     /** Knowledge graph builder. vars: { queryList, primaryContent, secondaryContent, existingMermaid? } */
     KNOWLEDGE_GRAPH:         (vars) => buildKnowledgeGraphPrompt(vars),
-    /** Document annotation. vars: { title, parentTopic, author, keywords, tags, feedback, content } */
-    ANNOTATION:              (vars) => buildAnnotationPrompt(vars),
     /** Conversation summary rewrite. vars: { inputText } */
     SUMMARY_REWRITE:         (vars) => buildSummaryRewritePrompt(vars),
     /** Check code logic chat query. vars: { projectContext, workflowSummary, userQuestion } */
@@ -435,7 +391,6 @@ module.exports = {
     buildPhase2Prompt,
     buildConfluenceIdExtractorPrompt,
     buildKnowledgeGraphPrompt,
-    buildAnnotationPrompt,
     buildSummaryRewritePrompt,
     buildCheckCodeLogicQuery,
     buildAdvancedSearchEvalPrompt,

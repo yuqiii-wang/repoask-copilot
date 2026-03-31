@@ -1,20 +1,12 @@
 module.exports = function(context) {
-  const { fs, path, vscode, storagePath, indexStoragePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, 
-    fetchJiraIssue, truncate, tokenize, htmlToMarkdown, jiraTextToMarkdown, generateSynonyms, readAllMetadata, writeDocumentFiles, 
-    readDocumentContent, localizeMarkdownImageLinks, getKeywordConfig, cleanKeywords, getStoredMetadataById,
-    getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, tokenization2bm25,
+  const { fs, path, vscode, storagePath, fetchConfluencePage, fetchAllConfluencePages, fetchConfluencePageChildren, 
+    fetchJiraIssue, htmlToMarkdown, jiraTextToMarkdown, generateSynonyms, readAllMetadata, writeDocumentFiles, 
+    readDocumentContent, localizeMarkdownImageLinks, getBm25Config, cleanKeywords, getStoredMetadataById,
+    getPageHtml, isLikelyHtml, extractHtmlTagData, resolveSourceUrl, tokenizationMain,
     buildCategorizedKeywords, normalizeCategorizedKeywords, flattenCategorizedKeywords } = context;
-  const { extractMermaidKeywords } = require('./tokenization2keywords');
+  const { buildCorpus, scoreDocumentBm25 } = require('./tokenization2keywords/bm25Keywords');
   const { getJiraExtractionRegexes } = require('../../mcp/jiraApi');
-  const { extractMdKeywords } = require('./md2keywords');
 
-  // Builds structural keywords from document content + title.
-  // Used by both processDocument/processJiraIssue (initial sync) and finalizeBm25KeywordsForDocuments (BM25 refresh).
-  function buildStructuralKeywords(docText, title) {
-    const mdKeywords = extractMdKeywords(String(docText || ''));
-    const titleKeywords = tokenize(String(title || ''));
-    return [...titleKeywords, ...mdKeywords];
-  }
 
   // Extracts all Jira issue keys explicitly referenced in text, using the configured jira.regex settings.
   function extractJiraReferences(text) {
@@ -215,95 +207,51 @@ async function finalizeBm25KeywordsForDocuments(docIds = []) {
     return;
   }
 
-  // 1. Gather all documents and calculate IDF using ALL split content including ngrams
-  const N = metadataList.length;
-  const dfMap = new Map();
-  const docTokensMap = new Map();
-  const docLengthMap = new Map();
-  let totalDocLength = 0;
+  // 1. Build corpus IDF map from all documents
+  const bm25Config = getBm25Config();
+  const corpus = buildCorpus(
+    metadataList.map(m => m.id),
+    id => readDocumentContent(storagePath, id) || '',
+    tokenizationMain
+  );
 
-  for (const meta of metadataList) {
-    const docText = readDocumentContent(storagePath, meta.id) || '';
-    const tokens = tokenization2bm25(docText);
-    const tokenSet = new Set(tokens);
-    
-    docTokensMap.set(meta.id, tokens);
-    docLengthMap.set(meta.id, tokens.length);
-    totalDocLength += tokens.length;
+  const totalDocumentCount = metadataList.length;
 
-    for (const token of tokenSet) {
-      dfMap.set(token, (dfMap.get(token) || 0) + 1);
-    }
-  }
-
-  const avgDocLength = totalDocLength / N || 1;
-
-  // BM25 Parameters
-  const k1 = 1.2;
-  const b = 0.75;
-
-  const idfMap = new Map();
-  for (const [token, df] of dfMap.entries()) {
-    const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
-    idfMap.set(token, idf);
-  }
-
-  const keywordConfig = getKeywordConfig();
-  const topN = keywordConfig.BM25_KEYWORD_LIMIT || Math.floor((keywordConfig.DEFAULT_KEYWORD_LIMIT || 40) / 2);
-
-  // 2. Score tokens and update metadata for target documents
+  // 2. Score and update metadata for each target document
   for (const docId of targetIdSet) {
-    const tokens = docTokensMap.get(docId);
-    const docText = readDocumentContent(storagePath, docId) || '';
-    if (!tokens) continue;
-
-    const docLen = docLengthMap.get(docId);
-    const tfMap = new Map();
-    for (const t of tokens) {
-      tfMap.set(t, (tfMap.get(t) || 0) + 1);
-    }
-
-    const scores = [];
-    for (const [token, tf] of tfMap.entries()) {
-      const idf = idfMap.get(token) || 0;
-      const tfScored = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLen / avgDocLength)));
-      scores.push({ token, score: idf * tfScored });
-    }
-
-    scores.sort((a, b) => b.score - a.score);
-    const bm25Keywords = scores.slice(0, topN).map(x => x.token);
-
-    // 3. Rebuild categorized keywords with BM25 tokens filling the bm25 category
     const metaIndex = metadataList.findIndex(m => m.id === docId);
-    if (metaIndex >= 0) {
-      const meta = metadataList[metaIndex];
-      const kgMermaid = typeof meta.knowledgeGraph === 'string' ? meta.knowledgeGraph : '';
-      const existingSummary = String(meta.summary || '').trim();
+    if (metaIndex < 0) continue;
 
-      // Preserve LLM-annotated semantic keywords across BM25 refresh
-      const oldNorm = normalizeCategorizedKeywords(meta.keywords);
-      const existingSemantic = ['1gram', '2gram', '3gram', '4gram']
-        .flatMap(g => {
-          const slot = oldNorm.semantic[g];
-          if (!slot) return [];
-          return Array.isArray(slot) ? cleanKeywords(slot) : Object.keys(slot);
-        });
+    const bm25Keywords = scoreDocumentBm25(docId, corpus, bm25Config);
+    const meta = metadataList[metaIndex];
+    const docText = readDocumentContent(storagePath, meta.id) || '';
+    const kgMermaid = typeof meta.knowledgeGraph === 'string' ? meta.knowledgeGraph : '';
+    const existingSummary = String(meta.summary || '').trim();
 
-      const bm25Base = buildCategorizedKeywords(
-        meta.title,
-        existingSummary,
-        docText,
-        { bm25Keywords, kgMermaid, existingSemantic }
-      );
-      meta.keywords = buildCategorizedKeywords(
-        meta.title,
-        existingSummary,
-        docText,
-        { bm25Keywords, kgMermaid, existingSemantic,
-          synonymNGrams: generateSynonyms(flattenCategorizedKeywords(bm25Base)) }
-      );
-      writeDocumentFiles(storagePath, meta.id, docText, meta);
-    }
+    // 3. Rebuild categorized keywords with BM25 tokens filling the bm25 category,
+    //    preserving LLM-annotated semantic keywords across BM25 refresh
+    const oldNorm = normalizeCategorizedKeywords(meta.keywords);
+    const existingSemantic = ['1gram', '2gram', '3gram', '4gram']
+      .flatMap(g => {
+        const slot = oldNorm.semantic[g];
+        if (!slot) return [];
+        return Array.isArray(slot) ? cleanKeywords(slot) : Object.keys(slot);
+      });
+
+    const bm25Base = buildCategorizedKeywords(
+      meta.title,
+      existingSummary,
+      docText,
+      { bm25Keywords, kgMermaid, existingSemantic, totalDocumentCount }
+    );
+    meta.keywords = buildCategorizedKeywords(
+      meta.title,
+      existingSummary,
+      docText,
+      { bm25Keywords, kgMermaid, existingSemantic, totalDocumentCount,
+        synonymNGrams: generateSynonyms(flattenCategorizedKeywords(bm25Base)) }
+    );
+    writeDocumentFiles(storagePath, meta.id, docText, meta);
   }
 }
 

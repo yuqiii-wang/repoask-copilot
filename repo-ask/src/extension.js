@@ -1,6 +1,7 @@
 const vscode = require('vscode');
 const EventEmitter = require('events');
 const { httpManager } = require('./mcp');
+const { refreshSkipWords } = require('./extension/documentService/tokenization2keywords/patternMatch');
 
 const { 
     fetchConfluencePage, 
@@ -64,6 +65,16 @@ function setupExtension(context) {
         writeDocumentFiles,
         readDocumentContent
     });
+
+    // Initialise skip-words from settings and keep in sync on config changes
+    refreshSkipWords(vscode);
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('repoAsk.skipWords')) {
+                refreshSkipWords(vscode);
+            }
+        })
+    );
 
     documentService.syncDefaultDocs(context.extensionPath);
 

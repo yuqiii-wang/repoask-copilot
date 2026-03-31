@@ -23,6 +23,39 @@ function setButtonLoadingState(button, isLoading, label) {
     button.textContent = label || button.dataset.defaultLabel || button.textContent || '';
 }
 
+// ── AI generation button state (feedback form only) ─────────────────────────
+// Prefixed to avoid collision with metadata.js globals in the same page scope.
+let feedbackIsSummaryGenerating = false;
+let feedbackIsKgGenerating = false;
+
+function setFeedbackSummaryGeneratingState(isGenerating) {
+    feedbackIsSummaryGenerating = Boolean(isGenerating);
+    const anyGenerating = feedbackIsSummaryGenerating || feedbackIsKgGenerating;
+    const summaryBtn = document.getElementById('feedback-generate-summary-btn');
+    const kgBtn = document.getElementById('feedback-generate-kg-btn');
+    const submitBtnEl = document.getElementById('submit-feedback-btn');
+    if (summaryBtn) {
+        summaryBtn.disabled = feedbackIsSummaryGenerating;
+        summaryBtn.classList.toggle('is-loading', feedbackIsSummaryGenerating);
+    }
+    if (kgBtn) kgBtn.disabled = anyGenerating;
+    if (submitBtnEl) submitBtnEl.disabled = anyGenerating;
+}
+
+function setFeedbackKgGeneratingState(isGenerating) {
+    feedbackIsKgGenerating = Boolean(isGenerating);
+    const anyGenerating = feedbackIsSummaryGenerating || feedbackIsKgGenerating;
+    const summaryBtn = document.getElementById('feedback-generate-summary-btn');
+    const kgBtn = document.getElementById('feedback-generate-kg-btn');
+    const submitBtnEl = document.getElementById('submit-feedback-btn');
+    if (kgBtn) {
+        kgBtn.disabled = feedbackIsKgGenerating;
+        kgBtn.classList.toggle('is-loading', feedbackIsKgGenerating);
+    }
+    if (summaryBtn) summaryBtn.disabled = anyGenerating;
+    if (submitBtnEl) submitBtnEl.disabled = anyGenerating;
+}
+
 async function settleSubmitState(submitBtn, success, label) {
     if (!submitBtn) {
         return;
@@ -46,7 +79,7 @@ function initFeedbackForm() {
     const feedbackSection = document.getElementById('feedback-section');
     const submitBtn = document.getElementById('submit-feedback-btn');
     const cancelBtn = document.getElementById('cancel-feedback-btn');
-    const generateSummaryBtn = document.getElementById('generate-summary-btn');
+    const generateSummaryBtn = document.getElementById('feedback-generate-summary-btn');
     const datetimeInput = document.getElementById('datetime');
     const addSecondaryUrlBtn = document.getElementById('add-secondary-url-btn');
     const secondaryUrlsContainer = document.getElementById('secondary-urls-container');
@@ -332,36 +365,18 @@ function initFeedbackForm() {
     // Generate AI summary button handler
     if (generateSummaryBtn) {
         generateSummaryBtn.addEventListener('click', () => {
+            if (feedbackIsSummaryGenerating || feedbackIsKgGenerating) return;
             if (typeof renderSuccessMessage === 'function') renderSuccessMessage('');
             if (typeof renderSyncError === 'function') renderSyncError('');
 
-            const conversationSummary = document.getElementById('conversation-summary')?.value || '';
-            if (!conversationSummary.trim()) {
-                if (typeof renderSyncError === 'function') renderSyncError('Please enter a conversation summary first');
-                return;
-            }
-            
-            // Show spinner and disable buttons
-            setButtonLoadingState(generateSummaryBtn, true, 'Generate AI Summary');
-            
-            // Disable submit button
-            const submitBtn = document.getElementById('submit-feedback-btn');
-            if (submitBtn) {
-                submitBtn.disabled = true;
-            }
+            setFeedbackSummaryGeneratingState(true);
 
-            // Also disable KG button while summary is generating
-            const kgBtn = document.getElementById('generate-kg-btn');
-            if (kgBtn) kgBtn.disabled = true;
-
-            // Collect form context so the extension can also build the knowledge graph
             const secondaryUrlInputs = document.querySelectorAll('.secondary-url-input');
             const secondaryUrls = Array.from(secondaryUrlInputs).map(i => i.value.trim()).filter(u => u);
-            
-            // Send request to generate summary (with form context for KG generation)
-            vscode.postMessage({ 
-                command: 'generateSummary', 
-                conversationSummary,
+
+            vscode.postMessage({
+                command: 'generateSummaryForDoc',
+                conversationSummary: document.getElementById('conversation-summary')?.value || '',
                 sourceQuery: document.getElementById('source-query')?.value || '',
                 confluencePageId: document.getElementById('confluence-page-id')?.value || '',
                 jiraId: document.getElementById('jira-id')?.value || '',
@@ -372,35 +387,26 @@ function initFeedbackForm() {
     }
 
     // Generate Knowledge Graph button handler
-    const generateKgBtn = document.getElementById('generate-kg-btn');
+    const generateKgBtn = document.getElementById('feedback-generate-kg-btn');
     if (generateKgBtn) {
         generateKgBtn.addEventListener('click', () => {
+            if (feedbackIsSummaryGenerating || feedbackIsKgGenerating) return;
             if (typeof renderSuccessMessage === 'function') renderSuccessMessage('');
             if (typeof renderSyncError === 'function') renderSyncError('');
 
-            const confluencePageId = document.getElementById('confluence-page-id')?.value?.trim() || '';
-            const jiraId = document.getElementById('jira-id')?.value?.trim() || '';
-            if (!confluencePageId && !jiraId) {
-                if (typeof renderSyncError === 'function') renderSyncError('Please provide a Confluence Page ID or Jira ID before generating the knowledge graph.');
-                return;
-            }
+            setFeedbackKgGeneratingState(true);
 
             const secondaryUrlInputs = document.querySelectorAll('.secondary-url-input');
             const secondaryUrls = Array.from(secondaryUrlInputs).map(i => i.value.trim()).filter(u => u);
 
-            setButtonLoadingState(generateKgBtn, true, 'Generate Knowledge Graph');
-
-            // Get the existing knowledge graph so the AI can edit it based on primary and secondary doc contents
-            const existingKnowledgeGraph = document.getElementById('knowledge-graph-raw')?.value?.trim() || '';
-
             vscode.postMessage({
-                command: 'generateKnowledgeGraph',
+                command: 'generateKgForDoc',
                 sourceQuery: document.getElementById('source-query')?.value || '',
-                confluencePageId,
-                jiraId,
+                confluencePageId: document.getElementById('confluence-page-id')?.value?.trim() || '',
+                jiraId: document.getElementById('jira-id')?.value?.trim() || '',
                 confluenceLink: document.getElementById('confluence-link')?.value || '',
                 secondaryUrls,
-                existingKnowledgeGraph,
+                existingKnowledgeGraph: document.getElementById('knowledge-graph-raw')?.value?.trim() || '',
                 conversationSummary: document.getElementById('conversation-summary')?.value?.trim() || ''
             });
         });
@@ -532,24 +538,7 @@ function populateSummary(summary) {
     if (summaryField) {
         summaryField.value = summary;
     }
-    
-    // Reset the generate summary button
-    const generateSummaryBtn = document.getElementById('generate-summary-btn');
-    if (generateSummaryBtn) {
-        setButtonLoadingState(generateSummaryBtn, false, 'Generate AI Summary');
-    }
-
-    // Re-enable KG button
-    const generateKgBtn = document.getElementById('generate-kg-btn');
-    if (generateKgBtn) {
-        generateKgBtn.disabled = false;
-    }
-    
-    // Re-enable submit button
-    const submitBtn = document.getElementById('submit-feedback-btn');
-    if (submitBtn) {
-        submitBtn.disabled = false;
-    }
+    setFeedbackSummaryGeneratingState(false);
 }
 
 // Function to populate the knowledge graph field
@@ -558,11 +547,7 @@ function populateKnowledgeGraph(mermaid) {
     if (rawField) {
         rawField.value = mermaid || '';
     }
-    // Re-enable KG generate button
-    const generateKgBtn = document.getElementById('generate-kg-btn');
-    if (generateKgBtn) {
-        setButtonLoadingState(generateKgBtn, false, 'Generate Knowledge Graph');
-    }
+    setFeedbackKgGeneratingState(false);
 }
 
 // Expose functions to global scope

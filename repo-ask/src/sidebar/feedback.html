@@ -8,9 +8,11 @@
             <input type="text" id="source-query" class="form-input" placeholder="Enter the source query">
         </div>
         <div class="form-group">
-            <label for="conversation-summary">Conversation Content/Summary</label>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <label for="conversation-summary">Conversation Content/Summary</label>
+                <button id="feedback-generate-summary-btn" class="action-btn">AI Gen</button>
+            </div>
             <textarea id="conversation-summary" class="form-textarea" placeholder="Enter a summary of the conversation"></textarea>
-            <button id="generate-summary-btn" class="action-btn">Generate AI Summary</button>
         </div>
         <div class="form-group">
             <label for="confluence-link">Confluence Page/Jira Link</label>
@@ -51,11 +53,11 @@
             <button type="button" id="add-secondary-url-btn" class="action-btn">Add Secondary URL/ID</button>
         </div>
         <div class="form-group">
-            <label for="knowledge-graph-raw">Knowledge Graph (Mermaid)</label>
-            <textarea id="knowledge-graph-raw" class="form-textarea" rows="6" placeholder="No knowledge graph yet. Generate AI Summary or click 'Generate Knowledge Graph' to build." readonly></textarea>
-            <div style="display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap;">
-                <button id="generate-kg-btn" class="action-btn" type="button">Generate Knowledge Graph</button>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <label for="knowledge-graph-raw">Knowledge Graph (Mermaid)</label>
+                <button id="feedback-generate-kg-btn" class="action-btn" type="button">AI Gen</button>
             </div>
+            <textarea id="knowledge-graph-raw" class="form-textarea" rows="6" placeholder="No knowledge graph yet. Click 'AI Gen' to build." readonly></textarea>
         </div>
         <div class="form-actions">
             <button id="submit-feedback-btn" class="action-btn primary">Submit</button>

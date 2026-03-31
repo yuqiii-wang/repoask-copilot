@@ -347,6 +347,35 @@ body {
     background: var(--vscode-list-hoverBackground);
     font-size: 12px;
     line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.referenced-query-item .query-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.query-new-input {
+    flex: 1;
+    min-width: 0;
+    height: 22px;
+    padding: 2px 4px;
+    font-size: 12px;
+}
+
+.query-delete-btn {
+    flex-shrink: 0;
+    padding: 0 5px;
+    opacity: 0.6;
+}
+
+.query-delete-btn:hover {
+    opacity: 1;
 }
 
 .referenced-query-empty {
@@ -368,6 +397,17 @@ body {
     align-items: center;
     justify-content: space-between;
     margin: 2px 0 4px;
+}
+
+.metadata-field-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.action-btn-sm {
+    padding: 2px 6px;
+    font-size: 11px;
 }
 
 .metadata-label {
@@ -432,6 +472,23 @@ body {
 .metadata-textarea {
     resize: vertical;
     min-height: 64px;
+}
+
+.metadata-textarea[readonly] {
+    cursor: default;
+    resize: none;
+    opacity: 0.75;
+}
+
+.metadata-textarea[readonly]:focus {
+    outline: none;
+    border-color: var(--vscode-input-border);
+    box-shadow: none;
+}
+
+.metadata-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 #summary-input {

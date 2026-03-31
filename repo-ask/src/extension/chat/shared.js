@@ -87,9 +87,9 @@ exports.collectResponseText = async function collectResponseText(vsApi, response
         for await (const chunk of response.stream) {
             if (vsApi.LanguageModelTextPart && chunk instanceof vsApi.LanguageModelTextPart) {
                 text += chunk.value;
-            } else if (typeof chunk === 'string') {
+            } else if (!vsApi.LanguageModelTextPart && typeof chunk === 'string') {
                 text += chunk;
-            } else if (chunk && typeof chunk.value === 'string') {
+            } else if (!vsApi.LanguageModelTextPart && chunk && typeof chunk.value === 'string') {
                 text += chunk.value;
             }
         }

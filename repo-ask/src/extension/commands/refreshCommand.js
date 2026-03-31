@@ -24,10 +24,9 @@ async function extractConfluenceIdentifierWithLlm(vsCodeApi, rawInput, options =
         if (!model) return null;
         const instruction = buildConfluenceIdExtractorPrompt({ promptContext: workspacePromptContext, rawInput });
         const response = await shared.withTimeout(
-            model.sendRequest([vsCodeApi.LanguageModelChatMessage.User(instruction)]),
+            model.sendRequest([vsCodeApi.LanguageModelChatMessage.User(instruction)], {}),
             LLM_TIMEOUT_MS, null
         );
-        if (!response) return null;
         const responseText = await shared.collectResponseText(vsCodeApi, response);
         const parsed = extractJsonObject(responseText);
         const arg = String(parsed?.arg || '').trim();

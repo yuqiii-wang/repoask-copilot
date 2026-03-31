@@ -14,16 +14,30 @@
  * Longer n-grams carry higher search weight (see searchWeights.keywords).
  */
 module.exports = function(context) {
-    const { tokenize } = context;
+    const { tokenize, vscode } = context;
     const { extractMdKeywords } = require('./md2keywords');
+    const { SKIP_WORDS } = require('./tokenization2keywords/patternMatch');
 
-    // ── Keyword limits ───────────────────────────────────────────────────────
-    const DEFAULT_KEYWORD_LIMIT = 60;
-    const TOKENIZATION_KEYWORD_LIMIT = 40;
-    const BM25_KEYWORD_LIMIT = 30;
+    // ── Keyword limits (fallback values when VSCode settings are unavailable) ──
+    const DEFAULT_KEYWORD_LIMIT = 100;
 
     function getKeywordConfig() {
-        return { DEFAULT_KEYWORD_LIMIT, TOKENIZATION_KEYWORD_LIMIT, BM25_KEYWORD_LIMIT };
+        const settings = (vscode && vscode.workspace.getConfiguration('repoAsk').get('keywords')) || {};
+        return {
+            DEFAULT_KEYWORD_LIMIT: Number(settings.KEYWORD_LIMIT ?? DEFAULT_KEYWORD_LIMIT),
+            KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR: Number(settings.KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR ?? 10)
+        };
+    }
+
+    function getBm25Config() {
+        const settings = (vscode && vscode.workspace.getConfiguration('repoAsk').get('bm25')) || {};
+        return {
+            k1:   Number(settings.k1  ?? 1.2),
+            b:    Number(settings.b   ?? 0.75),
+            topN: Number(settings.BM25_KEYWORD_LIMIT ?? 30),
+            docLogFactor: Number(settings.BM25_KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR ?? 10),
+            docNumLogFactor: Number(settings.BM25_KEYWORD_LIMIT_DOC_NUM_LOGARITHMIC_GROWTH_FACTOR ?? 10)
+        };
     }
 
     // ── Per-gram sub-list helpers ────────────────────────────────────────────
@@ -72,6 +86,8 @@ module.exports = function(context) {
             if (cleaned.length < 2) continue;
             const n = countGrams(cleaned);
             const key = n >= 4 ? '4gram' : `${n}gram`;
+            // Filter single-word stop words from 1-gram entries
+            if (n === 1 && SKIP_WORDS.has(cleaned)) continue;
             result[key][cleaned] = (result[key][cleaned] || 0) + 1;
         }
         return result;
@@ -235,7 +251,24 @@ module.exports = function(context) {
     }
 
     function buildCategorizedKeywords(title, summary, content, options = {}) {
-        const { bm25Keywords = [], kgMermaid = '', existingSemantic = [], synonymNGrams = null } = options;
+        const { bm25Keywords = [], kgMermaid = '', existingSemantic = [], synonymNGrams = null, totalDocumentCount = 0 } = options;
+
+        const contentLength = String(content || '').length;
+        const kwConfig = getKeywordConfig();
+        const bm25Cfg = getBm25Config();
+
+        // Effective keyword limit grows logarithmically with document length
+        const effectiveKeywordLimit = Math.round(
+            kwConfig.DEFAULT_KEYWORD_LIMIT +
+            Math.log(contentLength + 1) * kwConfig.KEYWORD_LIMIT_DOC_LOGARITHMIC_GROWTH_FACTOR
+        );
+
+        // Effective BM25 limit grows with document length AND total document count
+        const effectiveBm25Limit = Math.round(
+            bm25Cfg.topN +
+            Math.log(contentLength + 1) * bm25Cfg.docLogFactor +
+            Math.log(totalDocumentCount + 1) * bm25Cfg.docNumLogFactor
+        );
 
         // title: raw 1–4 grams — duplicates preserved so repeated words score higher
         const titleNGrams = tokenize(String(title || ''), { includeNGrams: true });
@@ -244,7 +277,7 @@ module.exports = function(context) {
         const structuralNGrams = extractMdKeywords(String(content || ''));
 
         // bm25: pre-scored top-N distinct tokens (count=1 each is intentional)
-        const bm25NGrams = cleanKeywords(bm25Keywords, BM25_KEYWORD_LIMIT);
+        const bm25NGrams = cleanKeywords(bm25Keywords, effectiveBm25Limit);
 
         // kg: entity tokens extracted from Mermaid diagram labels/node IDs (with counts)
         const kgNGrams = kgMermaid ? extractMermaidEntityTokens(kgMermaid) : [];
@@ -255,7 +288,7 @@ module.exports = function(context) {
             ? tokenize(String(summary), { includeNGrams: true })
             : [];
         const semanticNGrams = cleanKeywords(
-            [...existingSemantic, ...summaryNGrams], DEFAULT_KEYWORD_LIMIT);
+            [...existingSemantic, ...summaryNGrams], effectiveKeywordLimit);
 
         return {
             title:      categorizeByNGram(titleNGrams),
@@ -332,6 +365,7 @@ module.exports = function(context) {
 
     return {
         getKeywordConfig,
+        getBm25Config,
         buildCategorizedKeywords,
         normalizeCategorizedKeywords,
         flattenCategorizedKeywords,

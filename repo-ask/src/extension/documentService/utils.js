@@ -9,8 +9,7 @@ module.exports = function(context) {
     rankLocalDocuments, 
     refreshDocument, refreshAllDocuments, 
     refreshJiraIssue, notifyDocumentProcessed, processDocument, processJiraIssue, 
-    annotateDocumentByArg, annotateAllDocuments,
-     annotateStoredDocument, generateAnnotationWithLlm, localizeMarkdownImageLinks, 
+    localizeMarkdownImageLinks, 
      normalizeMarkdownLinkTarget, downloadImageAsset, downloadDataUriAsset, 
      resolveAbsoluteImageUrl, isDataUri, determineImageExtension, mimeTypeToExtension, 
      getKeywordConfig, buildKeywordOnlyIndexText, 
@@ -123,25 +122,6 @@ function getStoredMetadataById(docId) {
   return found ? normalizeMetadataKeywordFields(found) : null;
 }
 
-async function generateStoredMetadataById(docId) {
-  const metadata = getStoredMetadataById(docId);
-  if (!metadata) {
-    throw new Error(`Document ${docId} not found in local store.`);
-  }
-  const content = readDocumentContent(storagePath, metadata.id);
-  if (!content) {
-    throw new Error(`No local content found for document ${docId}.`);
-  }
-  const annotation = await generateAnnotationWithLlm(metadata, content);
-  // AI gen only updates summary; keywords are managed by the background sync pipeline
-  const updatedMetadata = normalizeMetadataKeywordFields({
-    ...metadata,
-    summary: String(annotation.summary || '').trim()
-  });
-  writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);
-  return updatedMetadata;
-}
-
 function updateStoredMetadataById(docId, patch = {}) {
   const metadata = getStoredMetadataById(docId);
   if (!metadata) {
@@ -195,7 +175,6 @@ function getWorkspaceRootPath() {
     writeDocumentPromptFile,
     writeDocumentSkillFile,
     getStoredMetadataById,
-    generateStoredMetadataById,
     updateStoredMetadataById,
     removeDocumentFromIndicesById,
     sanitizeFileSegment,

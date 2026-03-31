@@ -1,5 +1,5 @@
 const MarkdownIt = require('markdown-it');
-const { STOP_WORDS, extract_capital_sequences } = require('./tokenization2keywords/patternMatch');
+const { SKIP_WORDS, extract_capital_sequences } = require('./tokenization2keywords/patternMatch');
 const { wordsFromText, buildNGrams } = require('./tokenization2keywords');
 
 const md = new MarkdownIt({ html: false, linkify: false });
@@ -59,7 +59,7 @@ function addCodeIdentifiers(text, keywords) {
     while ((m = allCapsRe.exec(str)) !== null) {
         keywords.add(m[0].toLowerCase());
         if (m[0].includes('_')) {
-            const parts = m[0].toLowerCase().split('_').filter(p => p.length >= 2 && !STOP_WORDS.has(p));
+            const parts = m[0].toLowerCase().split('_').filter(p => p.length >= 2 && !SKIP_WORDS.has(p));
             buildNGrams(parts, 1, Math.min(3, parts.length)).forEach(ng => keywords.add(ng));
         }
     }
@@ -67,7 +67,7 @@ function addCodeIdentifiers(text, keywords) {
     // snake_case (at least two segments, no all-caps — those are handled above)
     const snakeRe = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,}\b/g;
     while ((m = snakeRe.exec(str)) !== null) {
-        const parts = m[0].split('_').filter(p => p.length >= 2 && !STOP_WORDS.has(p));
+        const parts = m[0].split('_').filter(p => p.length >= 2 && !SKIP_WORDS.has(p));
         buildNGrams(parts, 1, Math.min(3, parts.length)).forEach(ng => keywords.add(ng));
     }
 
@@ -76,7 +76,7 @@ function addCodeIdentifiers(text, keywords) {
         const words = wordsFromText(seq);
         if (words.length >= 2) {
             buildNGrams(words, 2, Math.min(4, words.length)).forEach(ng => keywords.add(ng));
-        } else if (words.length === 1 && !STOP_WORDS.has(words[0])) {
+        } else if (words.length === 1 && !SKIP_WORDS.has(words[0])) {
             keywords.add(words[0]);
         }
     }

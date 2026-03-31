@@ -42,7 +42,7 @@ async function generateKnowledgeGraph(vscodeApi, referenceQueries, secondaryUrls
 
         const instruction = buildKnowledgeGraphPrompt({ queryList, primaryContent, secondaryContent, existingMermaid, conversationSummary });
         const response = await shared.withTimeout(
-            model.sendRequest([vscodeApi.LanguageModelChatMessage.User(instruction)]),
+            model.sendRequest([vscodeApi.LanguageModelChatMessage.User(instruction)], {}),
             LLM_TIMEOUT_MS * 3, null
         );
         if (!response) return existingMermaid || '';
@@ -248,6 +248,15 @@ module.exports = function (context) {
 
             // 4. Expand Jira cross-references into the content map
             expandJiraReferences(primaryDoc, primaryContent, resolvedUrls, contentMap);
+        } else {
+            // No stored doc resolved — fall back to conversationSummary as primary content
+            // and still scan it for any Jira/Confluence IDs to load as secondary context
+            if (!primaryContent) {
+                primaryContent = String(conversationSummary || '').trim();
+            }
+            if (primaryContent) {
+                expandJiraReferences(null, primaryContent, resolvedUrls, contentMap);
+            }
         }
 
         // 5. Call LLM

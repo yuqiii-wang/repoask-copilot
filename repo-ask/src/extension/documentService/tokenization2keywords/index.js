@@ -1,4 +1,4 @@
-const { STOP_WORDS } = require('./patternMatch');
+const { SKIP_WORDS } = require('./patternMatch');
 const { generateSynonyms } = require('./synonyms');
 
 const MIN_WORD_LENGTH = 2;
@@ -21,7 +21,7 @@ function isValidToken(token) {
     return (
         token.length >= MIN_WORD_LENGTH &&
         token.length <= MAX_WORD_LENGTH &&
-        !STOP_WORDS.has(token) &&
+        !SKIP_WORDS.has(token) &&
         /[a-z]/.test(token)
     );
 }
@@ -207,4 +207,19 @@ function extractMermaidKeywords(mermaidText) {
     return [...keywords].filter(kw => !noise.has(kw));
 }
 
-module.exports = { tokenize, generateSynonyms, wordsFromText, buildNGrams, extractMermaidKeywords };
+/**
+ * Generate 1–4 gram tokens from document text for BM25 corpus-level scoring.
+ *
+ * Longer n-grams receive a higher BM25 weight multiplier during ranking
+ * (configured in searchWeights.BM25_NGRAM_WEIGHTS).  Returning all gram
+ * sizes together allows the BM25 scorer to weigh them independently.
+ *
+ * @param {string} text  Raw document text (markdown or plain text).
+ * @returns {string[]}   Flat array of 1-, 2-, 3-, and 4-gram token strings.
+ */
+function tokenizationMain(text) {
+    const words = wordsFromText(String(text || ''));
+    return buildNGrams(words, 1, 4);
+}
+
+module.exports = { tokenize, generateSynonyms, wordsFromText, buildNGrams, extractMermaidKeywords, tokenizationMain };

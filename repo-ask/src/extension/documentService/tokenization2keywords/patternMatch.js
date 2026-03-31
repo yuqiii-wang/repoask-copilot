@@ -19,30 +19,47 @@ const PATTERN_URL_STRICT = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[
 const PATTERN_NUM_STRICT = /^-?\d+(\.\d+)?$/;
 const PATTERN_URL = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
 const PATTERN_PHONE = /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g;
-const PATTERN_CAMEL_CASE = /[A-Z][a-z]+(?:[A-Z][a-z]+)+/g;
-const PATTERN_SNAKE_CASE = /[a-z0-9]+(?:_[a-z0-9]+)+/g;
 const PATTERN_CAPITAL_SEQUENCES = /(?:^|[\s\[({>'"\-])([A-Z][\w]*(?:[\s\-]+[A-Z][\w]*)+)/g;
 const PATTERN_ALL_CAPS_SINGLE = /(?:^|[\s\[({>'"\-])([A-Z0-9_]{2,})(?=$|[\s\])}<'".,?!\-])/g;
 
 const STRUCTURAL_SEPARATORS = ['-', '_', '+', '=', '$', '/'];
 
-const STOP_WORDS = new Set([
-    'and', 'or', 'but', 'if', 'then', 'else', 'when', 'at', 'by', 'for', 'with', 'without', 
-    'on', 'in', 'to', 'from', 'of', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should', 'can', 
+const DEFAULT_SKIP_WORDS = new Set([
+    'and', 'or', 'but', 'if', 'then', 'else', 'when', 'at', 'by', 'for', 'with', 'without',
+    'on', 'in', 'to', 'from', 'of', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should', 'can',
     'get', 'set', 'let', 'make', 'go', 'come', 'see', 'look', 'know', 'think', 'say', 'tell',
-    'ask', 'answer', 'help', 'use', 'used', 'using', 'need', 'need', 'want', 'want',
-    'require', 'require', 'include', 'include', 'add', 'added', 'check',
+    'ask', 'answer', 'help', 'use', 'used', 'using', 'need', 'want',
+    'require', 'include', 'check', 'checking', 'investigate', 'investigating',
+    'try', 'trying', 'run', 'running', 'investigation', 'review', 'reviewing', 'discuss', 'discussing', 'discussion',
     'could', 'may', 'might', 'must', 'a', 'an', 'the', 'it', 'this', 'that', 'these', 'those',
-    'i', 'you', 'he', 'she', 'they', 'we', 'me', 'him', 'her', 'them', 'us', 'my', 'your', 'his', 
+    'i', 'you', 'he', 'she', 'they', 'we', 'me', 'him', 'her', 'them', 'us', 'my', 'your', 'his',
     'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs', 'what', 'which', 'who', 'whom', 'whose',
-    'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 
-    'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 
-    'just', 'don', 'should', 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', 'couldn', 'didn', 
-    'doesn', 'hadn', 'hasn', 'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 
-    'shouldn', 'wasn', 'weren', 'won', 'wouldn', 't', 'please', 'thank', 'thanks',
-    'hello', 'hi', 'regards', 'dear', 'sincerely', 'best', 'wish', 'wishes', 'regard',
+    'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor',
+    'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't',
+    'just', 'don', 'now',
 ]);
+
+// Mutable set so all importers see the same live instance after refreshSkipWords() runs.
+const SKIP_WORDS = new Set(DEFAULT_SKIP_WORDS);
+
+/**
+ * Rebuild SKIP_WORDS in-place from the built-in defaults plus any extra words
+ * configured under repoAsk.skipWords.  Call this on extension activation and
+ * whenever the configuration changes.
+ * @param {import('vscode')} vscode
+ */
+function refreshSkipWords(vscode) {
+    const extra = (vscode && vscode.workspace.getConfiguration('repoAsk').get('skipWords')) || [];
+    SKIP_WORDS.clear();
+    for (const w of DEFAULT_SKIP_WORDS) SKIP_WORDS.add(w);
+    if (Array.isArray(extra)) {
+        for (const w of extra) {
+            const word = String(w || '').toLowerCase().trim();
+            if (word) SKIP_WORDS.add(word);
+        }
+    }
+}
 
 const PATTERNS = [
     ['EMAIL', PATTERN_EMAIL],
@@ -167,5 +184,7 @@ module.exports = {
     extract_capital_sequences,
     generate_structural_regex,
     STRUCTURAL_SEPARATORS,
-    STOP_WORDS
+    DEFAULT_SKIP_WORDS,
+    SKIP_WORDS,
+    refreshSkipWords
 };

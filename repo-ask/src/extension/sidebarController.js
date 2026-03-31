@@ -24,7 +24,7 @@ function createSidebarController(deps) {
 
     // Create command instances
     const openDoc = createOpenDocCommand(deps);
-    const { generateMetadata, saveMetadata } = createMetadataCommands(deps);
+    const { generateSummary, generateKnowledgeGraph, saveMetadata } = createMetadataCommands(deps);
     const searchDocs = createSearchCommand(deps);
     const addToPrompts = createPromptsCommand(deps);
     const addToSkills = createSkillsCommand(deps);
@@ -77,10 +77,6 @@ function createSidebarController(deps) {
                         await openDoc(message, docsWebviewView);
                     }
 
-                    if (message?.command === 'generateMetadata' && message.docId) {
-                        await generateMetadata(message, docsWebviewView, upsertSidebarDocument);
-                    }
-
                     if (message?.command === 'saveMetadata' && message.docId) {
                         await saveMetadata(message, upsertSidebarDocument);
                     }
@@ -109,12 +105,12 @@ function createSidebarController(deps) {
                         await handleSubmitFeedback(message.feedbackPayload);
                     }
 
-                    if (message?.command === 'generateSummary' && message.conversationSummary) {
-                        await handleGenerateSummary(message);
+                    if (message?.command === 'generateSummaryForDoc') {
+                        await generateSummary(message, docsWebviewView, upsertSidebarDocument);
                     }
 
-                    if (message?.command === 'generateKnowledgeGraph') {
-                        await handleGenerateKnowledgeGraph(message);
+                    if (message?.command === 'generateKgForDoc') {
+                        await generateKnowledgeGraph(message, docsWebviewView, upsertSidebarDocument);
                     }
 
 
@@ -486,127 +482,7 @@ function createSidebarController(deps) {
         }
     }
 
-    async function handleGenerateSummary(messageOrText) {
-        const conversationSummary = typeof messageOrText === 'string'
-            ? messageOrText
-            : String(messageOrText?.conversationSummary || '');
-        const formContext = typeof messageOrText === 'object' && messageOrText !== null ? messageOrText : {};
-        try {
-            let summary = '';
-            const inputText = String(conversationSummary || '').trim();
-            if (!inputText) {
-                if (docsWebviewView) {
-                    docsWebviewView.webview.postMessage({
-                        command: 'populateSummary',
-                        summary: ''
-                    });
-                }
-                return;
-            }
-            
-            // Try to use VS Code's built-in LLM to rewrite the provided conversation summary.
-            if (vscode.lm && vscode.LanguageModelChatMessage) {
-                try {
-                    const shared = require('./chat/shared');
-                    const { buildSummaryRewritePrompt } = require('./chat/prompts');
-                    const model = await shared.selectDefaultChatModel(vscode);
-                    if (model) {
-                        const instruction = buildSummaryRewritePrompt({ inputText });
 
-                        const response = await model.sendRequest([
-                            vscode.LanguageModelChatMessage.User(instruction)
-                        ]);
-
-                        let responseText = '';
-                        if (response) {
-                            if (response.stream) {
-                                for await (const chunk of response.stream) {
-                                    if (chunk instanceof vscode.LanguageModelTextPart) {
-                                        responseText += chunk.value;
-                                    }
-                                }
-                            } else if (response.text) {
-                                for await (const fragment of response.text) {
-                                    responseText += fragment;
-                                }
-                            }
-                        }
-                        summary = responseText.trim();
-                    }
-                } catch (llmError) {
-                    console.error('LLM error:', llmError);
-                    // Fallback to original content if LLM fails
-                    summary = inputText;
-                }
-            } else {
-                // Fallback to original content if LLM not available
-                summary = inputText;
-            }
-
-            if (!String(summary || '').trim()) {
-                summary = inputText;
-            }
-            
-            if (docsWebviewView) {
-                docsWebviewView.webview.postMessage({ 
-                    command: 'populateSummary', 
-                    summary 
-                });
-            }
-
-            // After summary is sent, also build knowledge graph if form context includes a document ID
-            if (formContext.confluencePageId || formContext.jiraId || formContext.confluenceLink) {
-                try {
-                    const mermaid = await buildKnowledgeGraphForForm(formContext);
-                    if (docsWebviewView) {
-                        docsWebviewView.webview.postMessage({ command: 'populateKnowledgeGraph', mermaid: mermaid || '' });
-                    }
-                } catch (kgErr) {
-                    console.error('[handleGenerateSummary] KG generation error:', kgErr);
-                    if (docsWebviewView) {
-                        docsWebviewView.webview.postMessage({ command: 'populateKnowledgeGraph', mermaid: '' });
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Error generating summary:', error);
-            vscode.window.showErrorMessage('Failed to generate summary. Please try again.');
-            
-            // Ensure buttons are re-enabled even on error
-            if (docsWebviewView) {
-                docsWebviewView.webview.postMessage({ 
-                    command: 'populateSummary', 
-                    summary: conversationSummary
-                });
-                docsWebviewView.webview.postMessage({ command: 'populateKnowledgeGraph', mermaid: '' });
-            }
-        }
-    }
-
-    async function handleGenerateKnowledgeGraph(formContext) {
-        try {
-            const mermaid = await buildKnowledgeGraphForForm(formContext);
-            if (docsWebviewView) {
-                docsWebviewView.webview.postMessage({ command: 'populateKnowledgeGraph', mermaid: mermaid || '' });
-            }
-        } catch (error) {
-            console.error('[handleGenerateKnowledgeGraph] Error:', error);
-            if (docsWebviewView) {
-                docsWebviewView.webview.postMessage({ command: 'populateKnowledgeGraph', mermaid: '' });
-            }
-        }
-    }
-
-    async function buildKnowledgeGraphForForm({ sourceQuery, confluencePageId, jiraId, confluenceLink, secondaryUrls, existingKnowledgeGraph: passedKG, conversationSummary }) {
-        return await documentService.buildKnowledgeGraph({
-            primaryDocId: confluencePageId || jiraId || null,
-            confluenceLink: confluenceLink || null,
-            secondaryUrls: Array.isArray(secondaryUrls) ? secondaryUrls : [],
-            referenceQueries: sourceQuery ? [sourceQuery] : [],
-            existingKnowledgeGraph: passedKG,
-            conversationSummary: String(conversationSummary || '').trim() || undefined
-        });
-    }
 
 async function getVSCodeUsername() {
         try {
