@@ -1,14 +1,78 @@
 import fs from 'fs';
 import path from 'path';
+import type { Metadata, Keywords, ReferencedQueries } from '../../sidebar/types';
 
-export default function(context: any) {
+/** Partial update patch for updateStoredMetadataById. */
+export interface MetadataPatch {
+  type?: string;
+  summary?: string;
+  keywords?: unknown;
+  tags?: unknown;
+  feedback?: string;
+  referencedQueries?: ReferencedQueries;
+  relatedPages?: string[];
+}
+
+/** Minimal VS Code API shape consumed by utils. */
+interface WorkspaceConfig {
+  get<T>(key: string): T | undefined;
+}
+interface VsCodeWorkspace {
+  getConfiguration(section: string): WorkspaceConfig;
+  workspaceFolders?: Array<{ uri: { fsPath: string } }>;
+}
+interface VsCodeApi {
+  workspace: VsCodeWorkspace;
+}
+
+/** External-document shape for HTML extraction helpers. */
+interface ExternalDocSource {
+  url?: string;
+  key?: string;
+  self?: string;
+  fields?: { project?: unknown };
+  _links?: { webui?: string; self?: string };
+  content?: string;
+  body?: { storage?: { value?: string } };
+  [key: string]: unknown;
+}
+
+/** Context injected into the utils module by the document service. */
+interface UtilsContext {
+  vscode: VsCodeApi;
+  storagePath: string;
+  generateSynonyms(tokens: string[]): Keywords['synonyms'] & { sourceMap?: Record<string, string[]> };
+  readAllMetadata(storagePath: string): Metadata[];
+  writeDocumentFiles(storagePath: string, pageId: string, content: string, metadata: Metadata): void;
+  readDocumentContent(storagePath: string, docId: string): string | null;
+  getKeywordConfig(): { DEFAULT_KEYWORD_LIMIT: number };
+  cleanKeywords(input: unknown, limit?: number): string[];
+  normalizeMetadataKeywordFields(metadata: Metadata): Metadata;
+  mergeSemanticKeywords(existing: Keywords, manual: string[]): Keywords;
+  normalizeCategorizedKeywords(kws: unknown): Keywords;
+  flattenCategorizedKeywords(kws: Keywords): string[];
+  cheerio: { load(html: string): CheerioApi };
+}
+
+/** Minimal cheerio API shape used in extractHtmlTagData. */
+type CheerioSelector = (selector: string) => {
+  first(): { text(): string };
+  each(fn: (_i: number, el: unknown) => void): void;
+  text(): string;
+  attr(name: string): string | undefined;
+};
+type CheerioApi = CheerioSelector & {
+  load?: never;
+};
+
+export default function(context: UtilsContext) {
   const { vscode, storagePath,
     generateSynonyms,
     readAllMetadata, writeDocumentFiles, readDocumentContent,
     getKeywordConfig, cleanKeywords, normalizeMetadataKeywordFields,
     mergeSemanticKeywords, normalizeCategorizedKeywords, flattenCategorizedKeywords, cheerio} = context;
 
-function writeDocumentPromptFile(metadata: any, content: any) {
+function writeDocumentPromptFile(metadata: Metadata, content: string): string {
   const workspaceRoot = getWorkspaceRootPath();
   const promptsDir = path.join(workspaceRoot, '.github', 'prompts');
 
@@ -20,12 +84,12 @@ function writeDocumentPromptFile(metadata: any, content: any) {
   const safeId = sanitizeFileSegment(metadata.id || 'unknown');
   const fileName = `${safeTitle}-${safeId}.prompt.md`;
   const filePath = path.join(promptsDir, fileName);
-  const promptText = [`# ${metadata.title || 'Untitled'}`, '', `Source ID: ${metadata.id || ''}`, `Author: ${metadata.author || 'Unknown'}`, `Last Updated: ${metadata.last_updated || ''}`, `Parent Topic: ${metadata.parent_confluence_topic || ''}`, '', '## Instructions', 'Use the following document content as authoritative context when answering questions about this topic.', '', '## Content', content].join('\n');
+  const promptText = [`# ${metadata.title || 'Untitled'}`, '', `Source ID: ${metadata.id || ''}`, `Author: ${metadata.author || 'Unknown'}`, `Last Updated: ${(metadata as Record<string, unknown>).last_updated || ''}`, `Parent Topic: ${(metadata as Record<string, unknown>).parent_confluence_topic || ''}`, '', '## Instructions', 'Use the following document content as authoritative context when answering questions about this topic.', '', '## Content', content].join('\n');
   fs.writeFileSync(filePath, promptText, 'utf8');
   return filePath;
 }
 
-function writeDocumentSkillFile(metadata: any, content: any) {
+function writeDocumentSkillFile(metadata: Metadata, content: string): string {
   const workspaceRoot = getWorkspaceRootPath();
   const skillsDir = path.join(workspaceRoot, '.github', 'skills');
 
@@ -37,7 +101,8 @@ function writeDocumentSkillFile(metadata: any, content: any) {
   }
 
   const filePath = path.join(skillDirPath, 'SKILL.md');
-  const skillText = ['---', `name: ${safeTitle}`, `description: ${metadata.summary || ''}`, '---', '', `# ${metadata.title || 'Untitled'}`, '', `Source ID: ${metadata.id || ''}`, `Author: ${metadata.author || 'Unknown'}`, `Last Updated: ${metadata.last_updated || ''}`, `Parent Topic: ${metadata.parent_confluence_topic || ''}`, '', '## Skill Instructions', 'Use the following document content as a reference skill or knowledge base for completing tasks.', '', '## Content', content].join('\n');
+  const skillDescription = String(metadata.summary || '').replace(/[\r\n]+/g, ' ').trim();
+  const skillText = ['---', `name: ${safeTitle}`, `description: ${skillDescription}`, '---', '', `# ${metadata.title || 'Untitled'}`, '', `Source ID: ${metadata.id || ''}`, `Author: ${metadata.author || 'Unknown'}`, `Last Updated: ${(metadata as Record<string, unknown>).last_updated || ''}`, `Parent Topic: ${(metadata as Record<string, unknown>).parent_confluence_topic || ''}`, '', '## Skill Instructions', 'Use the following document content as a reference skill or knowledge base for completing tasks.', '', '## Content', content].join('\n');
   fs.writeFileSync(filePath, skillText, 'utf8');
 
   const docDir = path.join(storagePath, String(metadata.id || ''));
@@ -53,7 +118,7 @@ function writeDocumentSkillFile(metadata: any, content: any) {
   return filePath;
 }
 
-function copyDirRecursive(src: string, dest: string) {
+function copyDirRecursive(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
@@ -66,35 +131,33 @@ function copyDirRecursive(src: string, dest: string) {
   }
 }
 
-
-
-function getPageHtml(page: any) {
+function getPageHtml(page: ExternalDocSource): string {
   if (typeof page?.content === 'string') {
     return page.content;
   }
   if (typeof page?.body?.storage?.value === 'string') {
-    return page.body.storage.value;
+    return page.body.storage.value as string;
   }
   return '';
 }
 
-function isLikelyHtml(value: any) {
+function isLikelyHtml(value: unknown): boolean {
   const text = String(value || '').trim();
   return /<[a-z][\s\S]*>/i.test(text);
 }
 
-function extractHtmlTagData(html: any) {
+function extractHtmlTagData(html: string): { title: string; keywords: string[] } {
   const $ = cheerio.load(String(html || ''));
   const extractedTitle = ($('title').first().text() || $('h1').first().text() || '').trim();
   const keywordCandidates: string[] = [];
-  $('meta[name="keywords"], meta[name="news_keywords"], meta[property="article:tag"]').each((_: any, element: any) => {
-    const content = $(element).attr('content');
+  $('meta[name="keywords"], meta[name="news_keywords"], meta[property="article:tag"]').each((_: number, element: unknown) => {
+    const content = ($ as unknown as (selector: unknown) => { attr(name: string): string | undefined })(element).attr('content');
     if (content) {
       keywordCandidates.push(...String(content).split(','));
     }
   });
-  $('h1, h2, h3').each((_: any, element: any) => {
-    const heading = $(element).text().trim();
+  $('h1, h2, h3').each((_: number, element: unknown) => {
+    const heading = ($ as unknown as (selector: unknown) => { text(): string })(element).text().trim();
     if (heading) {
       keywordCandidates.push(heading);
     }
@@ -105,14 +168,14 @@ function extractHtmlTagData(html: any) {
   };
 }
 
-function resolveSourceUrl(source: any) {
+function resolveSourceUrl(source: ExternalDocSource): string {
   const isJira = source?.key || (source?.fields && source?.fields?.project);
   let candidate = source?.url || source?._links?.webui || source?._links?.self || source?.self || '';
   candidate = String(candidate || '').trim();
 
   if (candidate && !candidate.startsWith('http://') && !candidate.startsWith('https://')) {
     const configuration = vscode.workspace.getConfiguration('repoAsk');
-    const profile = configuration.get(isJira ? 'jira' : 'confluence');
+    const profile = configuration.get<{ url?: string }>(isJira ? 'jira' : 'confluence');
     let base = String((profile?.url) || '').replace(/\/$/, '');
     
     if (!candidate.startsWith('/')) candidate = '/' + candidate;
@@ -127,22 +190,22 @@ function resolveSourceUrl(source: any) {
   return candidate;
 }
 
-function getStoredMetadataById(docId: any) {
+function getStoredMetadataById(docId: string): Metadata | null {
   const safeId = String(docId || '').trim();
   if (!safeId) {
     return null;
   }
   const allMetadata = readAllMetadata(storagePath);
-  const found = allMetadata.find((item: any) => String(item.id) === safeId) || null;
+  const found = allMetadata.find((item) => String(item.id) === safeId) || null;
   return found ? normalizeMetadataKeywordFields(found) : null;
 }
 
-function updateStoredMetadataById(docId: any, patch: any = {}) {
+function updateStoredMetadataById(docId: string, patch: MetadataPatch = {}): Metadata {
   const metadata = getStoredMetadataById(docId);
   if (!metadata) {
     throw new Error(`Document ${docId} not found in local store.`);
   }
-  const content = readDocumentContent(storagePath, metadata.id);
+  const content = readDocumentContent(storagePath, String(metadata.id));
   if (!content) {
     throw new Error(`No local content found for document ${docId}.`);
   }
@@ -159,26 +222,30 @@ function updateStoredMetadataById(docId: any, patch: any = {}) {
   const nextType = patch.type !== undefined ? String(patch.type || '').trim() : metadata.type;
   const nextTags = cleanKeywords(patch.tags, getKeywordConfig().DEFAULT_KEYWORD_LIMIT);
   const nextFeedback = String(patch.feedback || '').trim();
+  const nextReferencedQueries = patch.referencedQueries !== undefined ? patch.referencedQueries : metadata.referencedQueries;
+  const nextRelatedPages = patch.relatedPages !== undefined ? patch.relatedPages : metadata.relatedPages;
   const updatedMetadata = normalizeMetadataKeywordFields({
     ...metadata,
     type: nextType,
     keywords: updatedKws,
     tags: nextTags,
     feedback: nextFeedback,
-    summary: nextSummary
+    summary: nextSummary,
+    referencedQueries: nextReferencedQueries,
+    relatedPages: nextRelatedPages
   });
-  writeDocumentFiles(storagePath, metadata.id, content, updatedMetadata);
+  writeDocumentFiles(storagePath, String(metadata.id), content, updatedMetadata);
   return updatedMetadata;
 }
 
-function removeDocumentFromIndicesById(_docId: any) {
+function removeDocumentFromIndicesById(_docId: string): void {
 }
 
-function sanitizeFileSegment(value: any) {
+function sanitizeFileSegment(value: unknown): string {
   return String(value || 'item').toLowerCase().replace(/[^a-z0-9-_ ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 64) || 'item';
 }
 
-function getWorkspaceRootPath() {
+function getWorkspaceRootPath(): string {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
     throw new Error('Open a workspace folder to add prompt files.');

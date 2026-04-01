@@ -13,3 +13,5 @@ tools: [vscode, execute, read, agent, edit, search, web, todo, ]
 * If the change is large, break it down into smaller tasks and create a todo list.
 * Set up a new file if new feature is large.
 * encouraged to do less code change than chunky code change, if the change is large, break it down into smaller tasks and create a todo list.
+* For JIRA and Confluence and git dummy servers, simulate what real world api would be like, and implement the feature based on the simulated api, so that the code can be easily adapted to real world api in the future.
+

@@ -247,7 +247,10 @@ export default function (context: any) {
                 kgToUse = String(primaryDoc.knowledgeGraph || '').trim();
             }
             // Merge stored reference queries (dedup)
-            const storedQueries = Array.isArray(primaryDoc.referencedQueries) ? primaryDoc.referencedQueries : [];
+            const storedQueries = Object.keys(
+                (primaryDoc.referencedQueries && typeof primaryDoc.referencedQueries === 'object' && !Array.isArray(primaryDoc.referencedQueries))
+                    ? primaryDoc.referencedQueries : {}
+            );
             queries = [...new Set([...queries, ...storedQueries])];
 
             // 4. Expand Jira cross-references into the content map

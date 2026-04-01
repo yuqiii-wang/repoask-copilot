@@ -87,14 +87,29 @@ export default function createRefreshCommand(deps: any) {
         httpManager
     } = deps;
 
-    function normalizeReferencedQueries(value: any) {
+    function normalizeReferencedQueries(value: any): Record<string, string[]> {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const result: Record<string, string[]> = {};
+            for (const [q, v] of Object.entries(value)) {
+                const key = String(q).trim();
+                if (key) {
+                    result[key] = Array.isArray(v) ? (v as any[]).map(String).filter(Boolean) : [];
+                }
+            }
+            return result;
+        }
         if (Array.isArray(value)) {
-            return value.map(item => String(item || '').trim()).filter(Boolean);
+            return Object.fromEntries(
+                [...new Set(value.map((item: any) => String(item || '').trim()).filter(Boolean))]
+                    .map(q => [q, []])
+            );
         }
         if (typeof value === 'string') {
-            return value.split(',').map(item => item.trim()).filter(Boolean);
+            return Object.fromEntries(
+                value.split(',').map(item => item.trim()).filter(Boolean).map(q => [q, []])
+            );
         }
-        return [];
+        return {};
     }
 
     function extractConfluenceIdFromLink(link: any) {
@@ -116,7 +131,7 @@ export default function createRefreshCommand(deps: any) {
         return '';
     }
 
-    function mergeReferencedQueriesIntoMetadata(target: any, sourceQueries: any, metadataList: any) {
+    function mergeReferencedQueriesIntoMetadata(target: any, sourceQueries: Map<string, string>, metadataList: any) {
         if (!target || !sourceQueries || sourceQueries.size === 0) {
             return false;
         }
@@ -151,19 +166,25 @@ export default function createRefreshCommand(deps: any) {
         }
 
         const existingReferencedQueries = normalizeReferencedQueries(docMetadata.referencedQueries);
-        const mergedReferencedQueries = [...existingReferencedQueries];
+        const mergedReferencedQueries: Record<string, string[]> = { ...existingReferencedQueries };
+        let added = false;
 
-        for (const query of sourceQueries) {
+        for (const [query, datetime] of sourceQueries) {
             const normalizedQuery = String(query || '').trim();
             if (!normalizedQuery) {
                 continue;
             }
-            if (!mergedReferencedQueries.includes(normalizedQuery)) {
-                mergedReferencedQueries.push(normalizedQuery);
+            const ts = datetime || new Date().toISOString();
+            if (!mergedReferencedQueries[normalizedQuery]) {
+                mergedReferencedQueries[normalizedQuery] = [ts];
+                added = true;
+            } else if (ts && !mergedReferencedQueries[normalizedQuery].includes(ts)) {
+                mergedReferencedQueries[normalizedQuery] = [...mergedReferencedQueries[normalizedQuery], ts];
+                added = true;
             }
         }
 
-        if (mergedReferencedQueries.length === existingReferencedQueries.length) {
+        if (!added) {
             return false;
         }
 
@@ -221,10 +242,10 @@ export default function createRefreshCommand(deps: any) {
                 const existingIds = new Set(allMetadata.map((doc: any) => String(doc.id)));
                 
                 // Track feedback targets and source-query mapping for metadata updates.
-                const referenceQueries = new Set();
-                const sourceQueriesByTarget = new Map();
+                const referenceQueries = new Set<string>();
+                const sourceQueriesByTarget = new Map<string, Map<string, string>>();
                 // Secondary URLs: only union referenced queries, never fully refresh (no KG/summary overwrite).
-                const secondarySourceQueriesByTarget = new Map();
+                const secondarySourceQueriesByTarget = new Map<string, Map<string, string>>();
                 
                 try {
                     // Get the feedback Confluence page URL from configuration
@@ -253,12 +274,15 @@ export default function createRefreshCommand(deps: any) {
                             let confluencePageId = '';
                             let jiraId = '';
                             let confluenceLink = '';
+                            let rowDatetime = '';
                             const rowSecondaryUrls: string[] = [];
                             
                             // Extract data from each row
                             $(row).find('li').each((_, li) => {
-                                const text = $(li).text();
-                                if (text.includes('Source Query:')) {
+                                const text = $(li).text().trim();
+                                if (text.startsWith('Date:')) {
+                                    rowDatetime = text.replace('Date:', '').trim();
+                                } else if (text.includes('Source Query:')) {
                                     sourceQuery = text.replace('Source Query:', '').trim();
                                 } else if (text.includes('Confluence Page ID:')) {
                                     confluencePageId = text.replace('Confluence Page ID:', '').trim();
@@ -278,14 +302,16 @@ export default function createRefreshCommand(deps: any) {
                                     });
                                 }
                             });
+
+                            const feedbackDatetime = rowDatetime || new Date().toISOString();
                             
                             const refreshTarget = String(confluencePageId || jiraId || confluenceLink || '').trim();
                             if (refreshTarget) {
                                 referenceQueries.add(refreshTarget);
 
                                 if (sourceQuery) {
-                                    const currentQueries = sourceQueriesByTarget.get(refreshTarget) || new Set();
-                                    currentQueries.add(sourceQuery);
+                                    const currentQueries = sourceQueriesByTarget.get(refreshTarget) || new Map<string, string>();
+                                    currentQueries.set(sourceQuery, feedbackDatetime);
                                     sourceQueriesByTarget.set(refreshTarget, currentQueries);
                                 }
                             }
@@ -295,8 +321,8 @@ export default function createRefreshCommand(deps: any) {
                                 const target = secondaryTarget.trim();
                                 if (!target) continue;
                                 if (sourceQuery) {
-                                    const currentQueries = secondarySourceQueriesByTarget.get(target) || new Set();
-                                    currentQueries.add(sourceQuery);
+                                    const currentQueries = secondarySourceQueriesByTarget.get(target) || new Map<string, string>();
+                                    currentQueries.set(sourceQuery, feedbackDatetime);
                                     secondarySourceQueriesByTarget.set(target, currentQueries);
                                 }
                             }
@@ -307,8 +333,10 @@ export default function createRefreshCommand(deps: any) {
                     console.error('Error fetching feedback from Confluence:', error);
                     // Fallback to existing reference queries
                     allMetadata.forEach((doc: any) => {
-                        if (Array.isArray(doc.referencedQueries)) {
-                            doc.referencedQueries.forEach((query: any) => referenceQueries.add(query));
+                        if (doc.referencedQueries && typeof doc.referencedQueries === 'object' && !Array.isArray(doc.referencedQueries)) {
+                            Object.keys(doc.referencedQueries).forEach((query: string) => referenceQueries.add(query));
+                        } else if (Array.isArray(doc.referencedQueries)) {
+                            doc.referencedQueries.forEach((query: any) => referenceQueries.add(String(query)));
                         }
                     });
                 }

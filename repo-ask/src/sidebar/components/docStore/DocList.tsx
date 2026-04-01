@@ -1,4 +1,4 @@
-import { DocSummary } from '../types';
+import { DocSummary } from '../../types';
 interface DocListProps {
     docs: DocSummary[];
     selectedDocId: string | null;

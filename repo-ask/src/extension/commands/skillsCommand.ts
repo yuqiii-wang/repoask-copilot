@@ -60,5 +60,19 @@ export default function createSkillsCommand(deps: any) {
         docsWebviewView.webview.postMessage({ command: 'addToolToSkillsSuccess', payload: destPath });
     }
 
-    return { addToSkills, addToolToSkills };
-};
+    async function showSkillScripts(message: any) {
+        const docId = String(message.docId || '').trim();
+        if (!docId) {
+            vscode.window.showWarningMessage('Select a document first.');
+            return;
+        }
+
+        const scriptsDir = path.join(storagePath, docId, 'scripts');
+        if (!fs.existsSync(scriptsDir)) {
+            fs.mkdirSync(scriptsDir, { recursive: true });
+        }
+
+        vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(scriptsDir));
+    }
+
+    return { addToSkills, addToolToSkills, showSkillScripts };};

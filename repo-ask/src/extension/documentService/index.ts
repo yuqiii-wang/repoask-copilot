@@ -11,7 +11,7 @@ import utils from './utils';
 import knowledgeGraph from './knowledgeGraph';
 import summary from './summary';
 
-function extractJsonObject(rawText: any) {
+function extractJsonObject(rawText: unknown): unknown {
     if (!rawText) return null;
     const text = String(rawText).trim();
     try {
@@ -34,7 +34,7 @@ const tokenizationMain = tokenizationModule.tokenizationMain;
 
 
 
-function createDocumentService(deps: any) {
+function createDocumentService(deps: Record<string, unknown>) {
   const tokenize = tokenizeFromModule;
 
   const context = {

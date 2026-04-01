@@ -82,9 +82,62 @@ async function fetchAllConfluencePages() {
     
     const headers = getAuthHeaders(securityToken);
     
-    return await httpManager.request({
+    const data: any = await httpManager.request({
         method: 'GET',
         url: confluenceApiMap.contentAll(base),
+        timeout: REQUEST_TIMEOUT_MS,
+        headers
+    });
+    // Real Confluence wraps pages in { results: [...] }; extract the array.
+    return Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+}
+
+async function fetchAllConfluencePagesMetaOnly() {
+    const { url: base, securityToken } = getConfluenceConfig();
+    
+    if (!base) {
+        throw new Error('Confluence base URL not configured. Please set the repoAsk.confluence.url setting.');
+    }
+    
+    const headers = getAuthHeaders(securityToken);
+    
+    const data: any = await httpManager.request({
+        method: 'GET',
+        url: confluenceApiMap.contentAllMeta(base),
+        timeout: REQUEST_TIMEOUT_MS,
+        headers
+    });
+    return Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+}
+
+async function fetchConfluencePageMeta(pageArg: any) {
+    let { url: base, securityToken } = getConfluenceConfig();
+    
+    if (String(pageArg).startsWith('http')) {
+        base = new URL(pageArg).origin;
+    } else if (!base) {
+        throw new Error('Confluence base URL not configured. Please set the repoAsk.confluence.url setting.');
+    }
+    
+    const headers = getAuthHeaders(securityToken);
+    const pageId = extractConfluencePageIdFromArg(pageArg);
+    
+    if (pageId) {
+        try {
+            return await httpManager.request({
+                method: 'GET',
+                url: confluenceApiMap.contentMeta(base, pageId),
+                timeout: REQUEST_TIMEOUT_MS,
+                headers
+            });
+        } catch (error) {
+            // fall through
+        }
+    }
+    
+    return await httpManager.request({
+        method: 'GET',
+        url: confluenceApiMap.contentMeta(base, pageArg),
         timeout: REQUEST_TIMEOUT_MS,
         headers
     });
@@ -138,6 +191,9 @@ function normalizeFeedbackPayload(feedbackPayload: any) {
 function buildFeedbackRowHtml(feedbackPayload: any) {
     const normalized = normalizeFeedbackPayload(feedbackPayload);
     const details: string[] = [];
+
+    // Include datetime inside the feedback details so the sync code can read it back
+    details.push(`<li><strong>Date:</strong> ${escapeHtml(normalized.datetime)}</li>`);
 
     if (normalized.sourceQuery) {
         details.push(`<li><strong>Source Query:</strong> ${escapeHtml(normalized.sourceQuery)}</li>`);
@@ -306,6 +362,8 @@ async function createConfluencePage(title: any, content: any) {
 
 export { fetchConfluencePage,
     fetchAllConfluencePages,
+    fetchAllConfluencePagesMetaOnly,
+    fetchConfluencePageMeta,
     fetchConfluencePageChildren,
     updateConfluencePage,
     createConfluencePage

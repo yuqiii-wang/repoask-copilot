@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { vscode } from '../vscode';
+import { vscode } from '../../vscode';
 
 interface ContentPaneProps {
     contentHtml: string;
@@ -66,6 +66,16 @@ export default function ContentPane({ contentHtml, selectedDocId }: ContentPaneP
                                     }}
                                 >
                                     Add a Tool/Script
+                                </button>
+                                <button
+                                    className="dropdown-item"
+                                    type="button"
+                                    onClick={() => {
+                                        setDropdownOpen(false);
+                                        if (selectedDocId) vscode.postMessage({ command: 'showSkillScripts', docId: selectedDocId });
+                                    }}
+                                >
+                                    Show Tools/Scripts
                                 </button>
                             </div>
                         )}

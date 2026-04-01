@@ -34,7 +34,7 @@ function createSidebarController(deps: any) {
     const { generateSummary, generateKnowledgeGraph, saveMetadata } = createMetadataCommands(deps);
     const searchDocs = createSearchCommand(deps);
     const addToPrompts = createPromptsCommand(deps);
-    const { addToSkills, addToolToSkills } = createSkillsCommand(deps);
+    const { addToSkills, addToolToSkills, showSkillScripts } = createSkillsCommand(deps);
     const deleteDoc = createDeleteCommand(deps);
     const resetToDefaultDocs = createResetCommand(deps);
 
@@ -103,6 +103,10 @@ function createSidebarController(deps: any) {
 
                     if (message?.command === 'addToolToSkills') {
                         await addToolToSkills(message, docsWebviewView);
+                    }
+
+                    if (message?.command === 'showSkillScripts') {
+                        await showSkillScripts(message);
                     }
 
                     if (message?.command === 'deleteDoc') {
@@ -240,6 +244,15 @@ function createSidebarController(deps: any) {
                 last_updated: metadata.last_updated || ''
             }
         });
+
+        // Push the full saved metadata back so the pane re-renders from the store
+        docsWebviewView.webview.postMessage({
+            command: 'metadataUpdated',
+            payload: {
+                id: metadata.id,
+                metadata
+            }
+        });
     }
 
     function revealDocumentInSidebar(docId: any) {
@@ -370,9 +383,15 @@ function createSidebarController(deps: any) {
 
                     if (targetDocument) {
                         const normalizedDoc = documentService.getStoredMetadataById(targetDocument.id) || targetDocument;
-                        const currentReferenceQueries = Array.isArray(normalizedDoc.referencedQueries) ? normalizedDoc.referencedQueries : [];
-                        if (!currentReferenceQueries.includes(sourceQuery)) {
-                            const updatedReferenceQueries = [...currentReferenceQueries, sourceQuery];
+                        const currentReferenceQueries: Record<string, string[]> =
+                            (normalizedDoc.referencedQueries && typeof normalizedDoc.referencedQueries === 'object' && !Array.isArray(normalizedDoc.referencedQueries))
+                                ? normalizedDoc.referencedQueries
+                                : {};
+                        if (!currentReferenceQueries[sourceQuery]) {
+                            const updatedReferenceQueries = {
+                                ...currentReferenceQueries,
+                                [sourceQuery]: [new Date().toISOString()]
+                            };
                             const updatedMetadata = {
                                 ...normalizedDoc,
                                 referencedQueries: updatedReferenceQueries

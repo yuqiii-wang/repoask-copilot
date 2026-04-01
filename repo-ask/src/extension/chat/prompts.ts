@@ -197,12 +197,12 @@ function buildKnowledgeGraphPrompt({ queryList, primaryContent, secondaryContent
  */
 function buildSummaryRewritePrompt({ inputText }: any) {
     return [
-        'You are a helpful assistant that rewrites conversation summaries.',
-        'Rewrite the following conversation summary into a clear, concise, and complete summary.',
-        'Keep all key details, decisions, and action items. Remove filler, redundancy, and unnecessary preamble.',
-        'Aim for the shortest version that preserves all essential information. Return only the rewritten summary text.',
+        'You are a helpful assistant that rewrites document summaries.',
+        'Rewrite the following into a clear, concise summary of no more than two or three sentences.',
+        'Keep all key details and decisions. Remove filler, redundancy, and unnecessary preamble.',
+        'Return only the rewritten summary text, with no line breaks.',
         '',
-        'Conversation Summary:',
+        'Summary:',
         inputText
     ].join('\n');
 }

@@ -2,60 +2,11 @@
   "id": "code-review-skill",
   "title": "Code Review Skill",
   "author": "repoask-system",
-  "last_updated": "2026-03-31T00:00:00.000Z",
+  "lastUpdated": "2026-03-31T00:00:00.000Z",
   "parent_confluence_topic": "Skills",
   "keywords": {
-    "title": {
-      "1gram": { "code": 1, "review": 1, "skill": 1 },
-      "2gram": { "code review": 1, "review skill": 1 },
-      "3gram": { "code review skill": 1 },
-      "4gram": {}
-    },
-    "structural": {
-      "1gram": {
-        "security": 1,
-        "vulnerability": 1,
-        "sonarqube": 1,
-        "owasp": 1,
-        "injection": 1,
-        "xss": 1,
-        "csrf": 1,
-        "authentication": 1,
-        "authorization": 1,
-        "cryptography": 1,
-        "deserialization": 1,
-        "xxe": 1,
-        "ssrf": 1,
-        "hardcoded": 1,
-        "secrets": 1,
-        "sql-injection": 1,
-        "code-smell": 1,
-        "complexity": 1,
-        "null-pointer": 1,
-        "resource-leak": 1
-      },
-      "2gram": {
-        "code review": 1,
-        "security review": 1,
-        "owasp top10": 1,
-        "sql injection": 1,
-        "access control": 1,
-        "broken authentication": 1,
-        "hardcoded credentials": 1,
-        "resource leak": 1,
-        "exception handling": 1,
-        "null safety": 1
-      },
-      "3gram": {
-        "owasp top 10": 1,
-        "broken access control": 1,
-        "insecure direct object": 1,
-        "server side request": 1
-      },
-      "4gram": {
-        "server side request forgery": 1
-      }
-    },
+    "title": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
+    "structural": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "semantic": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "bm25":     { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "kg":       { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },

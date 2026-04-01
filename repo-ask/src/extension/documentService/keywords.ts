@@ -76,32 +76,36 @@ export default function(context: any) {
     }
 
     /**
-     * Build a per-gram-size count-map object from a raw keyword array.
-     * Each occurrence of a keyword is counted, so repeated tokens (e.g. from
-     * a title "fx fx fx trade") produce { '1gram': { 'fx': 3, 'trade': 1 } }.
+     * Build a per-gram-size positions-map object from a raw keyword array.
+     * Each occurrence of a keyword records its 0-based index in the input array,
+     * so repeated tokens (e.g. "fx fx fx trade") produce
+     * { '1gram': { 'fx': [0, 1, 2], 'trade': [3] } }.
      * Keywords shorter than 2 characters are discarded.
      */
     function categorizeByNGram(keywords: any) {
         const result: Record<string, any> = emptyGramSlots();
         const rawList = Array.isArray(keywords) ? keywords : normalizeKeywordsInput(keywords);
-        for (const kw of rawList) {
-            const cleaned = String(kw || '').trim().toLowerCase();
+        const total = rawList.length;
+        for (let i = 0; i < total; i++) {
+            const cleaned = String(rawList[i] || '').trim().toLowerCase();
             if (cleaned.length < 2) continue;
             const n = countGrams(cleaned);
             const key = n >= 4 ? '4gram' : `${n}gram`;
             // Filter single-word stop words from 1-gram entries
             if (n === 1 && SKIP_WORDS.has(cleaned)) continue;
-            result[key][cleaned] = (result[key][cleaned] || 0) + 1;
+            if (!result[key][cleaned]) { result[key][cleaned] = []; }
+            result[key][cleaned].push(total > 0 ? parseFloat((i / total).toFixed(4)) : 0);
         }
         return result;
     }
 
     /**
-     * Normalize a single gram-slot value to the count-map format.
-     * Handles three legacy shapes plus the current format:
-     *   - flat array ("[kw,kw,...]")          → categorizeByNGram (counts duplicates)
-     *   - gram-slot w/ arrays ({ '1gram':[] }) → each distinct entry gets count=1
-     *   - gram-slot w/ count maps (new)        → normalize keys to lowercase
+     * Normalize a single gram-slot value to the positions-map format.
+     * Handles legacy shapes plus the current format:
+     *   - flat array "[kw,kw,...]"               → categorizeByNGram (records indices)
+     *   - gram-slot w/ arrays ({ '1gram':[] })   → each distinct entry gets positions=[idx]
+     *   - gram-slot w/ count numbers (legacy)    → synthesize positions [0,1,...,count-1]
+     *   - gram-slot w/ positions arrays (current)→ normalize keys to lowercase
      */
     function normalizeGramSlot(value: any) {
         if (!value) return emptyGramSlots();
@@ -112,13 +116,17 @@ export default function(context: any) {
                 const slot = value[gram];
                 if (!slot) continue;
                 if (Array.isArray(slot)) {
-                    for (const kw of cleanKeywords(slot, undefined)) {
-                        result[gram][kw.toLowerCase()] = 1;
-                    }
+                    // Flat keyword list — each keyword gets a single synthetic position
+                    cleanKeywords(slot, undefined).forEach((kw, idx) => {
+                        result[gram][kw.toLowerCase()] = [idx];
+                    });
                 } else if (typeof slot === 'object') {
                     for (const [k, v] of Object.entries(slot)) {
                         const key = String(k).toLowerCase().trim();
-                        if (key.length >= 2) result[gram][key] = Number(v) || 1;
+                        if (key.length < 2) continue;
+                        if (Array.isArray(v)) {
+                            result[gram][key] = (v as any[]).map(Number).filter(n => !isNaN(n));
+                        }
                     }
                 }
             }
@@ -253,6 +261,47 @@ export default function(context: any) {
         return tokens;
     }
 
+    /**
+     * Build the synonym positions map by inheriting token positions from source keywords.
+     * For each synonym, the positions of its source keywords are looked up across all base
+     * keyword categories and unioned, so synonyms share the same position references as the
+     * original content tokens they were derived from.
+     */
+    function buildSynonymPositionsMap(synonymNGrams: any, baseCategories: any) {
+        const result: Record<string, any> = emptyGramSlots();
+        if (!synonymNGrams || typeof synonymNGrams !== 'object') return result;
+
+        const sourceMap: Record<string, string[]> = synonymNGrams.sourceMap || {};
+        const baseCats = ['title', 'structural', 'semantic', 'bm25', 'kg'];
+        const allGrams = ['1gram', '2gram', '3gram', '4gram'];
+
+        for (const gram of allGrams) {
+            const synList = Array.isArray(synonymNGrams[gram]) ? synonymNGrams[gram] : [];
+            for (const syn of synList) {
+                const synLower = String(syn || '').toLowerCase().trim();
+                if (synLower.length < 2) continue;
+                const sources = sourceMap[synLower] || [];
+                // Union positions of all source keywords across all base categories
+                const posSet = new Set<number>();
+                for (const src of sources) {
+                    const srcLower = src.toLowerCase();
+                    for (const cat of baseCats) {
+                        for (const g of allGrams) {
+                            const entry = (baseCategories[cat]?.[g] || {})[srcLower];
+                            if (Array.isArray(entry)) {
+                                for (const p of entry) posSet.add(p);
+                            }
+                        }
+                    }
+                }
+                result[gram][synLower] = posSet.size > 0
+                    ? [...posSet].sort((a: number, b: number) => a - b)
+                    : [];
+            }
+        }
+        return result;
+    }
+
     function buildCategorizedKeywords(title: any, summary: any, content: any, options: any = {}) {
         const { bm25Keywords = [], kgMermaid = '', existingSemantic = [], synonymNGrams = null, totalDocumentCount = 0 } = options;
 
@@ -293,13 +342,21 @@ export default function(context: any) {
         const semanticNGrams = cleanKeywords(
             [...existingSemantic, ...summaryNGrams], effectiveKeywordLimit);
 
-        return {
+        const baseCategories = {
             title:      categorizeByNGram(titleNGrams),
             structural: categorizeByNGram(structuralNGrams),
             semantic:   categorizeByNGram(semanticNGrams),
             bm25:       categorizeByNGram(bm25NGrams),
             kg:         categorizeByNGram(kgNGrams),
-            synonyms:   synonymNGrams ? normalizeGramSlot(synonymNGrams) : emptyGramSlots()
+        };
+
+        return {
+            ...baseCategories,
+            synonyms: synonymNGrams
+                ? (synonymNGrams.sourceMap !== undefined
+                    ? buildSynonymPositionsMap(synonymNGrams, baseCategories)
+                    : normalizeGramSlot(synonymNGrams))
+                : emptyGramSlots()
         };
     }
 

@@ -131,8 +131,11 @@ export default function(context: any) {
       const lowerId    = String(meta.id    || '').toLowerCase();
       const lowerType  = String(meta.type  || '').toLowerCase();
       const tags  = (Array.isArray(meta.tags) ? meta.tags : []).map((t: any) => String(t).toLowerCase());
-      const refQs = (Array.isArray(meta.referencedQueries) ? meta.referencedQueries : [])
-                      .map((rq: any) => String(rq).toLowerCase());
+      const refQs = Object.keys(
+        (meta.referencedQueries && typeof meta.referencedQueries === 'object' && !Array.isArray(meta.referencedQueries))
+          ? meta.referencedQueries
+          : {}
+      ).map(rq => rq.toLowerCase());
 
       // norm[cat][gram] is now a count-map object { keyword: count }.
       // Build a flat set of all known keywords for WQ.keywords matching.
@@ -184,23 +187,26 @@ export default function(context: any) {
         for (const cat of ['title', 'structural', 'semantic', 'bm25', 'kg']) {
           const catWeight = Number((KW[cat] || {})[gramKey] || 0);
           if (!catWeight) continue;
-          const catMap: Record<string, number> = norm[cat][gramKey] || {};
+          const catMap: Record<string, any> = norm[cat][gramKey] || {};
           let tfScore = 0;
-          for (const qg of qSet) tfScore += (catMap[qg] || 0) * charLengthMultiplier(qg);
+          for (const qg of qSet) {
+            const entry = catMap[qg];
+            const tf = Array.isArray(entry) ? entry.length : 0;
+            tfScore += tf * charLengthMultiplier(qg);
+          }
           track(`KW.${cat}.${gramKey}`, tfScore * catWeight);
         }
 
         // synonyms
         const synWeight = Number(SYN[gramKey] || 0);
         if (synWeight) {
-          const legacySlot = Array.isArray(meta.synonyms) && gramKey === '1gram'
-            ? meta.synonyms.map((s: any) => String(s).toLowerCase()) : [];
           const synMap = norm.synonyms[gramKey] || {};
           let tfScore = 0;
           for (const qg of qSet) {
             const clm = charLengthMultiplier(qg);
-            tfScore += (synMap[qg] || 0) * clm;
-            if (legacySlot.includes(qg)) tfScore += clm;
+            const entry = synMap[qg];
+            const tf = Array.isArray(entry) ? entry.length : 0;
+            tfScore += tf * clm;
           }
           track(`SYN.${gramKey}`, tfScore * synWeight);
         }

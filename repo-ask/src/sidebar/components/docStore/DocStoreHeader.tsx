@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { vscode } from '../vscode';
+import { vscode } from '../../vscode';
 import RefreshPopup from './RefreshPopup';
 
 interface DocStoreHeaderProps {

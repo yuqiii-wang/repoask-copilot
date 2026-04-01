@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DocSummary, Metadata } from './types';
-import DocStoreHeader from './components/DocStoreHeader';
-import DocList from './components/DocList';
-import ContentPane from './components/ContentPane';
-import MetadataPane from './components/MetadataPane';
-import FeedbackSection from './components/FeedbackSection';
+import DocStoreHeader from './components/docStore/DocStoreHeader';
+import DocList from './components/docStore/DocList';
+import ContentPane from './components/docViewer/ContentPane';
+import MetadataPane from './components/docViewer/MetadataPane';
+import FeedbackSection from './components/feedback/FeedbackSection';
 import { vscode } from './vscode';
 
 declare global {

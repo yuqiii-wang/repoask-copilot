@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { SyncType } from '../types';
-import { vscode } from '../vscode';
+import { SyncType } from '../../types';
+import { vscode } from '../../vscode';
 
 interface RefreshPopupProps {
     onClose: () => void;

@@ -5,18 +5,8 @@
   "last_updated": "2026-03-10T00:00:00.000Z",
   "parent_confluence_topic": "Skills",
   "keywords": {
-    "title": {
-      "1gram": { "behavior": 1, "driven": 1, "development": 1, "bdd": 1, "cucumber": 1, "skill": 1 },
-      "2gram": { "behavior driven": 1, "driven development": 1, "bdd cucumber": 1, "cucumber skill": 1 },
-      "3gram": { "behavior driven development": 1, "bdd cucumber skill": 1 },
-      "4gram": {}
-    },
-    "structural": {
-      "1gram": { "bdd": 1, "behavior-driven-development": 1, "given-when-then": 1, "gherkin": 1, "cucumber": 1, "testing": 1, "scenarios": 1 },
-      "2gram": { "acceptance criteria": 1 },
-      "3gram": {},
-      "4gram": {}
-    },
+    "title": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
+    "structural": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "semantic": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "bm25":     { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "kg":       { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },

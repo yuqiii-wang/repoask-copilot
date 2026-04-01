@@ -1,10 +1,89 @@
-export default function createMetadataCommands(deps: any) {
+import type { Metadata, ReferencedQueries } from '../../sidebar/types';
+
+/** Minimal VS Code API shape used in metadata commands. */
+interface VsCodeApi {
+    window: {
+        showInformationMessage(msg: string): void;
+        showErrorMessage(msg: string): void;
+    };
+}
+
+/** Document service methods consumed by the metadata commands. */
+interface MetadataDocumentService {
+    getStoredMetadataById(docId: string): Metadata | null;
+    updateStoredMetadataById(docId: string, patch: MetadataPatch): Metadata;
+    buildSummary(opts: SummaryBuildOptions): Promise<string | null>;
+    saveSummary(docId: string, summary: string): Promise<void>;
+    buildKnowledgeGraph(opts: KgBuildOptions): Promise<string | null>;
+    saveKnowledgeGraph(docId: string, mermaid: string): Promise<void>;
+}
+
+interface MetadataCommandDeps {
+    vscode: VsCodeApi;
+    documentService: MetadataDocumentService;
+}
+
+/** Partial metadata update applied by saveMetadata. */
+interface MetadataPatch {
+    type?: string;
+    summary?: string;
+    keywords?: unknown;
+    tags?: unknown;
+    feedback?: string;
+    referencedQueries?: ReferencedQueries;
+    relatedPages?: string[];
+}
+
+interface SummaryBuildOptions {
+    docId?: string;
+    conversationSummary?: string;
+    confluencePageId?: string;
+    jiraId?: string;
+    confluenceLink?: string;
+}
+
+interface KgBuildOptions {
+    primaryDocId: string;
+    confluenceLink: string;
+    secondaryUrls: string[];
+    referenceQueries: string[];
+    existingKnowledgeGraph: string;
+    conversationSummary: string;
+}
+
+/** Normalised fields extracted from an incoming webview message. */
+interface NormalizedMessage {
+    docId: string;
+    conversationSummary: string;
+    confluencePageId: string;
+    jiraId: string;
+    confluenceLink: string;
+    sourceQuery: string;
+    existingKnowledgeGraph: string;
+    secondaryUrls: string[];
+}
+
+/** A webview message that triggers metadata persistence. */
+interface SaveMetadataMessage {
+    docId: string;
+    type?: string;
+    summary?: string;
+    keywords?: unknown;
+    tags?: unknown;
+    referencedQueries?: ReferencedQueries;
+    relatedPages?: string[];
+}
+
+type WebviewView = { webview: { postMessage(msg: unknown): void } };
+type UpsertDocument = (metadata: Metadata) => void;
+
+export default function createMetadataCommands(deps: MetadataCommandDeps) {
     const { vscode, documentService } = deps;
 
     // ── helpers ────────────────────────────────────────────────────────────────
 
     /** Normalise every field of an incoming message to a non-null value. */
-    function normalise(msg: any) {
+    function normalise(msg: Record<string, unknown>): NormalizedMessage {
         return {
             docId:                 String(msg.docId                 || '').trim(),
             conversationSummary:   String(msg.conversationSummary   || '').trim(),
@@ -14,7 +93,7 @@ export default function createMetadataCommands(deps: any) {
             sourceQuery:           String(msg.sourceQuery           || '').trim(),
             existingKnowledgeGraph: String(msg.existingKnowledgeGraph || '').trim(),
             secondaryUrls: Array.isArray(msg.secondaryUrls)
-                ? msg.secondaryUrls.map((u: any) => String(u || '').trim()).filter(Boolean)
+                ? (msg.secondaryUrls as unknown[]).map((u) => String(u || '').trim()).filter(Boolean)
                 : []
         };
     }
@@ -32,7 +111,7 @@ export default function createMetadataCommands(deps: any) {
      *   → loads stored doc summary as input, calls documentService.buildSummary,
      *     saves result, fires summaryGenerationState + metadataUpdated.
      */
-    async function generateSummary(message: any, docsWebviewView: any, upsertSidebarDocument: any) {
+    async function generateSummary(message: Record<string, unknown>, docsWebviewView: WebviewView, upsertSidebarDocument: UpsertDocument): Promise<void> {
         const { docId, conversationSummary, confluencePageId, jiraId, confluenceLink,
                 sourceQuery, existingKnowledgeGraph, secondaryUrls } = normalise(message);
 
@@ -111,7 +190,7 @@ export default function createMetadataCommands(deps: any) {
      *   → calls buildKnowledgeGraph with the form IDs / URLs, fires
      *     populateKnowledgeGraph (does NOT write to store).
      */
-    async function generateKnowledgeGraph(message: any, docsWebviewView: any, upsertSidebarDocument: any) {
+    async function generateKnowledgeGraph(message: Record<string, unknown>, docsWebviewView: WebviewView, upsertSidebarDocument: UpsertDocument): Promise<void> {
         const { docId, conversationSummary, confluencePageId, jiraId, confluenceLink,
                 sourceQuery, existingKnowledgeGraph, secondaryUrls } = normalise(message);
 
@@ -123,14 +202,14 @@ export default function createMetadataCommands(deps: any) {
                 if (!docMeta) throw new Error(`Document ${docId} not found.`);
 
                 const mergedSecondary = [
-                    ...Array.isArray(docMeta.relatedPages) ? docMeta.relatedPages.filter(Boolean) : [],
+                    ...(docMeta.relatedPages ?? []).filter(Boolean),
                     ...secondaryUrls
                 ];
                 const mermaid = await documentService.buildKnowledgeGraph({
-                    primaryDocId: docMeta.confluencePageId || docMeta.jiraId || docId,
-                    confluenceLink: docMeta.url || '',
+                    primaryDocId: String((docMeta as Record<string, unknown>).confluencePageId || (docMeta as Record<string, unknown>).jiraId || docId),
+                    confluenceLink: String((docMeta as Record<string, unknown>).url || ''),
                     secondaryUrls: mergedSecondary,
-                    referenceQueries: Array.isArray(docMeta.referencedQueries) ? docMeta.referencedQueries : [],
+                    referenceQueries: Object.keys(docMeta.referencedQueries ?? {}),
                     existingKnowledgeGraph: String(docMeta.knowledgeGraph || '').trim() || existingKnowledgeGraph,
                     conversationSummary: String(docMeta.summary || '').trim() || conversationSummary
                 });
@@ -165,7 +244,7 @@ export default function createMetadataCommands(deps: any) {
         }
     }
 
-    async function saveMetadata(message: any, upsertSidebarDocument: any) {
+    async function saveMetadata(message: SaveMetadataMessage, upsertSidebarDocument: UpsertDocument): Promise<void> {
         if (!message?.docId) {
             return;
         }
@@ -175,7 +254,9 @@ export default function createMetadataCommands(deps: any) {
                 type: message.type,
                 summary: message.summary,
                 keywords: message.keywords,
-                tags: message.tags
+                tags: message.tags,
+                referencedQueries: message.referencedQueries,
+                relatedPages: message.relatedPages
             });
             upsertSidebarDocument(updatedMetadata);
             vscode.window.showInformationMessage(`Saved metadata for: ${updatedMetadata.title || updatedMetadata.id}`);

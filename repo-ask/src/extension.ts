@@ -4,7 +4,9 @@ import { httpManager } from './mcp';
 import { refreshSkipWords } from './extension/documentService/tokenization2keywords/patternMatch';
 import { 
     fetchConfluencePage, 
-    fetchAllConfluencePages, 
+    fetchAllConfluencePages,
+    fetchAllConfluencePagesMetaOnly,
+    fetchConfluencePageMeta,
     fetchConfluencePageChildren,
     fetchJiraIssue
 } from './mcp';
@@ -51,7 +53,9 @@ function setupExtension(context: any) {
         storagePath,
         indexStoragePath,
         fetchConfluencePage,
+        fetchConfluencePageMeta,
         fetchAllConfluencePages,
+        fetchAllConfluencePagesMetaOnly,
         fetchConfluencePageChildren,
         fetchJiraIssue,
         truncate,

@@ -1,31 +1,37 @@
 import fs from 'fs';
 import path from 'path';
+import type { Metadata, Keywords, ReferencedQueries } from './sidebar/types';
+
+/** Minimal shape of the VS Code extension context used by storage helpers. */
+interface VsCodeExtensionContext {
+    globalStorageUri: { fsPath: string };
+}
 
 const CONTENT_FILE_NAME = 'content.md';
 const METADATA_FILE_NAME = 'metadata.json';
 const IMAGES_DIR_NAME = 'images';
 
-function getLocalStorePath(context: any) {
+function getLocalStorePath(context: VsCodeExtensionContext): string {
     return path.join(context.globalStorageUri.fsPath, 'local-store');
 }
 
-function getLocalIndexStorePath(context: any) {
+function getLocalIndexStorePath(context: VsCodeExtensionContext): string {
     return path.join(context.globalStorageUri.fsPath, 'local-store-index');
 }
 
-function ensureStoragePath(context: any) {
+function ensureStoragePath(context: VsCodeExtensionContext): string {
     const storagePath = getLocalStorePath(context);
     fs.mkdirSync(storagePath, { recursive: true });
     return storagePath;
 }
 
-function ensureIndexStoragePath(context: any) {
+function ensureIndexStoragePath(context: VsCodeExtensionContext): string {
     const indexPath = getLocalIndexStorePath(context);
     fs.mkdirSync(indexPath, { recursive: true });
     return indexPath;
 }
 
-function rewriteMetadataFile(metadataPath: any, fallbackId: any) {
+function rewriteMetadataFile(metadataPath: string, fallbackId: string): boolean {
     if (!fs.existsSync(metadataPath)) {
         return false;
     }
@@ -46,29 +52,29 @@ function rewriteMetadataFile(metadataPath: any, fallbackId: any) {
     return false;
 }
 
-function getDocumentDirectory(storagePath: any, docId: any) {
+function getDocumentDirectory(storagePath: string, docId: string): string {
     return path.join(storagePath, String(docId));
 }
 
-function getDocumentContentPath(storagePath: any, docId: any) {
+function getDocumentContentPath(storagePath: string, docId: string): string {
     return path.join(getDocumentDirectory(storagePath, docId), CONTENT_FILE_NAME);
 }
 
-function getDocumentMetadataPath(storagePath: any, docId: any) {
+function getDocumentMetadataPath(storagePath: string, docId: string): string {
     return path.join(getDocumentDirectory(storagePath, docId), METADATA_FILE_NAME);
 }
 
-function getDocumentImagesDirectory(storagePath: any, docId: any) {
+function getDocumentImagesDirectory(storagePath: string, docId: string): string {
     return path.join(getDocumentDirectory(storagePath, docId), IMAGES_DIR_NAME);
 }
 
-function readAllMetadata(storagePath: any) {
+function readAllMetadata(storagePath: string): Metadata[] {
     const entries = fs.existsSync(storagePath)
         ? fs.readdirSync(storagePath, { withFileTypes: true })
         : [];
 
-    const byId = new Map();
-    const metadataList: any[] = [];
+    const byId = new Map<string, Metadata>();
+    const metadataList: Metadata[] = [];
 
     for (const entry of entries) {
         if (!entry.isDirectory()) {
@@ -114,7 +120,7 @@ function readAllMetadata(storagePath: any) {
     return metadataList;
 }
 
-function backfillStoredMetadataSchema(storagePath: any) {
+function backfillStoredMetadataSchema(storagePath: string): void {
     const entries = fs.existsSync(storagePath)
         ? fs.readdirSync(storagePath, { withFileTypes: true })
         : [];
@@ -131,36 +137,60 @@ function backfillStoredMetadataSchema(storagePath: any) {
     }
 }
 
-function normalizeStoredMetadataSchema(docId: any, metadata: any) {
-    const base = metadata && typeof metadata === 'object' ? metadata : {};
-    const normalizedReferencedQueries = Array.isArray(base.referencedQueries)
-        ? [...new Set(base.referencedQueries.map((value: any) => String(value || '').trim()).filter(Boolean))]
-        : typeof base.referencedQueries === 'string'
-            ? [...new Set(base.referencedQueries.split(',').map((value: any) => value.trim()).filter(Boolean))]
-            : [];
+function normalizeStoredMetadataSchema(docId: string, metadata: unknown): Metadata {
+    const base: Record<string, unknown> = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : {};
+    // Normalize referencedQueries to Record<string, string[]> (query → ISO datetime list)
+    let normalizedReferencedQueries: ReferencedQueries;
+    if (base.referencedQueries && typeof base.referencedQueries === 'object' && !Array.isArray(base.referencedQueries)) {
+        // Already in new format — ensure all values are string[]
+        normalizedReferencedQueries = {};
+        for (const [q, v] of Object.entries(base.referencedQueries)) {
+            const key = String(q).trim();
+            if (key) {
+                normalizedReferencedQueries[key] = Array.isArray(v)
+                    ? (v as any[]).map((s: any) => String(s)).filter(Boolean)
+                    : [];
+            }
+        }
+    } else if (Array.isArray(base.referencedQueries)) {
+        // Legacy: string[] → each query maps to empty datetime list
+        normalizedReferencedQueries = Object.fromEntries(
+            [...new Set((base.referencedQueries as unknown[]).map((value) => String(value || '').trim()).filter(Boolean))]
+                .map(q => [q, []])
+        );
+    } else if (typeof base.referencedQueries === 'string') {
+        normalizedReferencedQueries = Object.fromEntries(
+            [...new Set((base.referencedQueries as string).split(',').map((value) => value.trim()).filter(Boolean))]
+                .map(q => [q, []])
+        );
+    } else {
+        normalizedReferencedQueries = {};
+    }
 
-    const result = {
+    const result: Metadata = {
         ...base,
-        id: base.id !== undefined && base.id !== null ? base.id : pageIdToId(docId),
+        id: base.id !== undefined && base.id !== null ? String(base.id) : pageIdToId(docId),
         keywords: (base.keywords && typeof base.keywords === 'object' && !Array.isArray(base.keywords))
-            ? base.keywords
-            : (Array.isArray(base.keywords) ? base.keywords : {}),
-        tags: Array.isArray(base.tags) ? base.tags : [],
+            ? base.keywords as unknown as Keywords
+            : undefined,
+        tags: Array.isArray(base.tags) ? (base.tags as string[]) : [],
         referencedQueries: normalizedReferencedQueries,
         summary: typeof base.summary === 'string' ? base.summary : '',
         feedback: typeof base.feedback === 'string' ? base.feedback : '',
         knowledgeGraph: typeof base.knowledgeGraph === 'string' ? base.knowledgeGraph : '',
-        relatedPages: Array.isArray(base.relatedPages) ? base.relatedPages : []
+        relatedPages: Array.isArray(base.relatedPages) ? (base.relatedPages as string[]) : []
     };
-    delete result.synonyms;  // legacy field — synonyms now live in keywords.synonyms
+    delete (result as Record<string, unknown>).synonyms;  // legacy field — synonyms now live in keywords.synonyms
     return result;
 }
 
-function pageIdToId(docId: any) {
+function pageIdToId(docId: string): string {
     return String(docId);
 }
 
-function writeDocumentFiles(storagePath: any, pageId: any, markdownContent: any, metadata: any) {
+function writeDocumentFiles(storagePath: string, pageId: string, markdownContent: string, metadata: Metadata): void {
     const docDir = getDocumentDirectory(storagePath, pageId);
     const imagesDir = getDocumentImagesDirectory(storagePath, pageId);
     const contentPath = getDocumentContentPath(storagePath, pageId);
@@ -174,7 +204,7 @@ function writeDocumentFiles(storagePath: any, pageId: any, markdownContent: any,
     fs.writeFileSync(metadataPath, JSON.stringify(normalizedMetadata, null, 2), 'utf8');
 }
 
-function readDocumentMetadata(storagePath: any, docId: any) {
+function readDocumentMetadata(storagePath: string, docId: string): unknown {
     const metadataPath = getDocumentMetadataPath(storagePath, docId);
     if (!fs.existsSync(metadataPath)) {
         return null;
@@ -186,7 +216,7 @@ function readDocumentMetadata(storagePath: any, docId: any) {
     }
 }
 
-function readDocumentContent(storagePath: any, docId: any) {
+function readDocumentContent(storagePath: string, docId: string): string | null {
     const markdownPath = getDocumentContentPath(storagePath, docId);
     if (fs.existsSync(markdownPath)) {
         return fs.readFileSync(markdownPath, 'utf8');
@@ -205,7 +235,7 @@ function readDocumentContent(storagePath: any, docId: any) {
     return null;
 }
 
-function deleteDocumentFiles(storagePath: any, docId: any) {
+function deleteDocumentFiles(storagePath: string, docId: string): { deletedMd: boolean; deletedJson: boolean; deletedCount: number } {
     const docDir = getDocumentDirectory(storagePath, docId);
     const markdownPath = getDocumentContentPath(storagePath, docId);
     const metadataPath = getDocumentMetadataPath(storagePath, docId);
@@ -223,7 +253,7 @@ function deleteDocumentFiles(storagePath: any, docId: any) {
         ['md', legacyMarkdownPath],
         ['json', legacyMetadataPath],
         ['txt', legacyTextPath]
-    ]) {
+    ] as Array<[string, string]>) {
         try {
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);

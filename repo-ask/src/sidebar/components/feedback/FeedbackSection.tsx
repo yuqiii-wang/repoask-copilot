@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { vscode } from '../vscode';
+import { vscode } from '../../vscode';
 
 interface FeedbackSectionProps {
     visible: boolean;

@@ -255,14 +255,23 @@ function generateSynonyms(keywords: any) {
     }
 
     const dictionary = loadDictionary();
-    const expanded = new Set();
-    
+    // Maps each generated synonym to the set of source keywords that produced it,
+    // so token positions can be inherited from the original content.
+    const expandedMap = new Map<string, Set<string>>();
+
+    function addSynonym(syn: string, source: string) {
+        if (!expandedMap.has(syn)) {
+            expandedMap.set(syn, new Set<string>());
+        }
+        expandedMap.get(syn)!.add(source);
+    }
+
     for (const kw of keywords) {
         const textKw = String(kw || '').trim();
         if (!textKw) continue;
-        
+
         if (textKw.includes(' ')) {
-            expanded.add(textKw);
+            addSynonym(textKw, textKw);
             continue;
         }
 
@@ -270,11 +279,11 @@ function generateSynonyms(keywords: any) {
         const decimalMatch = textKw.match(/^(\d+)\.(\d{2,})$/);
         if (decimalMatch) {
             const num = parseFloat(textKw);
-            expanded.add(decimalMatch[1]);               // integer part (1gram)
+            addSynonym(decimalMatch[1], textKw);               // integer part (1gram)
             const fracLen = decimalMatch[2].length;
-            if (fracLen >= 1) expanded.add(num.toFixed(1));
-            if (fracLen >= 2) expanded.add(num.toFixed(2));
-            if (fracLen >= 3) expanded.add(num.toFixed(3));
+            if (fracLen >= 1) addSynonym(num.toFixed(1), textKw);
+            if (fracLen >= 2) addSynonym(num.toFixed(2), textKw);
+            if (fracLen >= 3) addSynonym(num.toFixed(3), textKw);
         }
 
         const digitCount = (textKw.match(/\d/g) || []).length;
@@ -282,32 +291,32 @@ function generateSynonyms(keywords: any) {
         if (digitCount >= 3 || hasSeparator) {
             const structRegex = generate_structural_regex(textKw);
             if (structRegex) {
-                expanded.add(structRegex);
+                addSynonym(structRegex, textKw);
             }
         }
-        
+
         for (const [name, pattern] of PATTERNS) {
             const regex = new RegExp((pattern as RegExp).source, 'i');
             const tkStr = String(textKw);
             if (regex.test(tkStr)) {
-                expanded.add((name as string).toLowerCase());
+                addSynonym((name as string).toLowerCase(), textKw);
 
                 if ((name as string).includes('DATE')) {
-                    expanded.add(tkStr.replace(/[\/]/g, '-'));
+                    addSynonym(tkStr.replace(/[\/]/g, '-'), textKw);
                 }
             }
         }
-        
+
         if (/[A-Z][a-z]+(?:[A-Z][a-z]+)+/.test(textKw)) {
-            expanded.add(camelCaseToDashed(textKw));
+            addSynonym(camelCaseToDashed(textKw), textKw);
         }
-        
+
         if (/[a-z0-9]+(?:_[a-z0-9]+)+/.test(textKw)) {
-            expanded.add(textKw.replace(/_/g, '-'));
+            addSynonym(textKw.replace(/_/g, '-'), textKw);
         }
-        
+
         if (/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(textKw)) {
-            expanded.add(textKw.replace(/[-.]/g, '-'));
+            addSynonym(textKw.replace(/[-.]/g, '-'), textKw);
         }
     }
 
@@ -321,30 +330,36 @@ function generateSynonyms(keywords: any) {
                 const appendedCandidates = getAppendCandidates(word, suffix);
                 for (const appended of appendedCandidates) {
                     if (appended !== word && dictionary.has(appended)) {
-                        expanded.add(appended);
+                        addSynonym(appended, word);
                     }
                 }
 
                 const trimmedCandidates = getTrimCandidates(word, suffix);
                 for (const trimmed of trimmedCandidates) {
                     if (trimmed !== word && dictionary.has(trimmed)) {
-                        expanded.add(trimmed);
+                        addSynonym(trimmed, word);
                     }
                 }
             }
         }
     }
 
-    const result: Record<string, any[]> = { '1gram': [], '2gram': [], '3gram': [], '4gram': [] };
-    for (const syn of [...expanded].filter(word => !keywords.includes(word))) {
+    const result: Record<string, any> = { '1gram': [], '2gram': [], '3gram': [], '4gram': [] };
+    const sourceMap: Record<string, string[]> = {};
+
+    for (const [syn, sources] of expandedMap) {
+        if (keywords.includes(syn)) continue;
         const n = countGrams(syn);
         const key = n >= 4 ? '4gram' : `${n}gram`;
         result[key].push(syn);
+        sourceMap[syn.toLowerCase()] = [...sources];
     }
     // cap each bucket
-    for (const key of Object.keys(result)) {
-        result[key] = result[key].slice(0, 25);
+    for (const key of ['1gram', '2gram', '3gram', '4gram']) {
+        result[key] = (result[key] as string[]).slice(0, 25);
     }
+    // Attach sourceMap so callers can resolve token positions from original content
+    result.sourceMap = sourceMap;
     return result;
 }
 
