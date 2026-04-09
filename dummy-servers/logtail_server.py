@@ -3,24 +3,28 @@ Logtail dummy server – hosts log files from the dummy-servers/logs/ directory.
 
 Endpoints
 ---------
-GET /                              – HTML home / index of available logs
-GET /api/logs                      – JSON list of available log files
-GET /api/logs/{filename}           – Return full log content (plain text)
-GET /api/logs/{filename}?start_time=YYYY-MM-DD HH:MM:SS&end_time=YYYY-MM-DD HH:MM:SS
-                                   – Return time-filtered log lines
-GET /api/logs/{filename}/tail?lines=N
-                                   – Return last N lines (default 100)
-GET /api/logs/{filename}/search?q=keyword
-                                   – Return lines matching keyword (case-insensitive)
+GET /                                                – HTML home / index
+GET /logTail                                         – HTML list of all components with their list URLs
+GET /logTail/{component}?list                        – HTML list of log files for a component (parse URLs by regex)
+GET /logTail/{component}?file={filename}             – Return full log content (plain text)
+GET /logTail/{component}?file={filename}&n=N         – Return last N lines (tail; default: all)
+GET /logTail/{component}?file={filename}&f=HH:MM&t=HH:MM
+                                                     – Return time-filtered log lines (plain text)
+GET /logTail/{component}?file={filename}&i={text}    – Return lines including text (plain text)
+GET /logTail/{component}?file={filename}&e={text}    – Return lines excluding text (plain text)
+GET /logTail/{component}?file={filename}&i={text}&f=HH:MM&t=HH:MM
+                                                     – Search within time-filtered window (plain text)
+GET /logTail/{component}?file={filename}&i={text}&n=N
+                                                     – Search last N lines for text (plain text)
 
 Runs on port 8093.
 """
 
 from fastapi import FastAPI, Request, Query, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
 import os
 import re
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from typing import Optional
 from template_utils import render_home_template
 
@@ -32,6 +36,7 @@ LOG_TIMESTAMP_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})"
 )
 TIMESTAMP_FMT = "%Y-%m-%d %H:%M:%S.%f"
+_TS_FILENAME_RE = re.compile(r"^(.+)-(\d{12})\.log$")
 
 app = FastAPI(title="Logtail Dummy Server", version="1.0.0")
 
@@ -46,6 +51,22 @@ def _list_logs() -> list[str]:
         f for f in os.listdir(LOGS_DIR)
         if os.path.isfile(os.path.join(LOGS_DIR, f))
     )
+
+
+def _list_components() -> list[str]:
+    """Return sorted list of unique component prefixes derived from log filenames."""
+    components: set[str] = set()
+    for name in _list_logs():
+        m = _TS_FILENAME_RE.match(name)
+        if m:
+            components.add(m.group(1))
+    return sorted(components)
+
+
+def _list_files_for_component(component: str) -> list[str]:
+    """Return log filenames that belong to the given component prefix."""
+    prefix = f"{component}-"
+    return [f for f in _list_logs() if f.startswith(prefix)]
 
 
 def _read_log(filename: str) -> list[str]:
@@ -68,32 +89,26 @@ def _parse_ts(line: str) -> Optional[datetime]:
         return None
 
 
-_QUERY_TS_FMTS = [
-    "%Y-%m-%d %H:%M:%S.%f",   # 2026-04-01 09:00:00.000  (primary)
-    "%Y-%m-%d %H:%M:%S",       # 2026-04-01 09:00:00
-    "%Y-%m-%dT%H:%M:%S.%fZ",  # 2026-04-01T09:00:00.000Z
-    "%Y-%m-%dT%H:%M:%SZ",      # 2026-04-01T09:00:00Z
-    "%Y-%m-%dT%H:%M:%S.%f",   # 2026-04-01T09:00:00.000
-    "%Y-%m-%dT%H:%M:%S",       # 2026-04-01T09:00:00
-]
+_HHMM_RE = re.compile(r'^(\d{1,2}):(\d{2})$')
 
 
-def _parse_query_ts(ts_str: str) -> datetime:
-    """Parse a query timestamp string trying several common formats. Raises HTTPException 400 on failure."""
-    for fmt in _QUERY_TS_FMTS:
-        try:
-            return datetime.strptime(ts_str, fmt)
-        except ValueError:
-            continue
-    raise HTTPException(
-        status_code=400,
-        detail=f"Unrecognised timestamp format: {ts_str!r}. Expected YYYY-MM-DD HH:MM:SS[.mmm]",
-    )
+def _parse_hhmm(hhmm: str) -> dt_time:
+    """Parse HH:MM into a time object. Raises HTTPException 400 on failure."""
+    m = _HHMM_RE.match(hhmm.strip())
+    if not m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unrecognised time format: {hhmm!r}. Expected HH:MM",
+        )
+    hour, minute = int(m.group(1)), int(m.group(2))
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise HTTPException(status_code=400, detail=f"Invalid time value: {hhmm!r}")
+    return dt_time(hour, minute)
 
 
-def _filter_by_time(lines: list[str], start: Optional[str], end: Optional[str]) -> list[str]:
-    start_dt = _parse_query_ts(start) if start else None
-    end_dt   = _parse_query_ts(end)   if end   else None
+def _filter_by_time(lines: list[str], from_hhmm: Optional[str], to_hhmm: Optional[str]) -> list[str]:
+    from_t = _parse_hhmm(from_hhmm) if from_hhmm else None
+    to_t   = _parse_hhmm(to_hhmm)   if to_hhmm   else None
     result = []
     current_ts: Optional[datetime] = None
     for line in lines:
@@ -102,9 +117,10 @@ def _filter_by_time(lines: list[str], start: Optional[str], end: Optional[str]) 
             current_ts = ts
         if current_ts is None:
             continue
-        if start_dt and current_ts < start_dt:
+        t = current_ts.time().replace(second=0, microsecond=0)
+        if from_t and t < from_t:
             continue
-        if end_dt and current_ts > end_dt:
+        if to_t and t > to_t:
             continue
         result.append(line)
     return result
@@ -115,21 +131,18 @@ def _filter_by_time(lines: list[str], start: Optional[str], end: Optional[str]) 
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-async def home():
-    logs = _list_logs()
-    links = [
-        {"text": name, "href": f"/api/logs/{name}"}
-        for name in logs
-    ]
+async def home(request: Request):
+    components = _list_components()
+    base = str(request.base_url).rstrip("/")
     sections = [
         {
-            "title": "Available Log Files",
+            "title": "Log Components",
             "items": [
                 {
                     "title": name,
-                    "description": f"Full log · <a href='/api/logs/{name}?start_time=2026-04-01 09:00:00.000&end_time=2026-04-01 17:00:00.000'>time filter</a> · <a href='/api/logs/{name}/tail'>tail 100</a> · <a href='/api/logs/{name}/search?q=ERROR'>search ERROR</a>",
-                    "url": f"/api/logs/{name}",
-                } for name in logs
+                    "description": f"<a href='/logTail/{name}?list'>list files</a>",
+                    "url": f"/logTail/{name}?list",
+                } for name in components
             ],
         }
     ]
@@ -141,60 +154,76 @@ async def home():
     )
 
 
-@app.get("/api/logs", response_class=JSONResponse)
-async def list_logs():
-    logs = _list_logs()
-    return JSONResponse({
-        "logs": [
-            {
-                "name": name,
-                "url": f"/api/logs/{name}",
-                "tail_url": f"/api/logs/{name}/tail",
-                "search_url": f"/api/logs/{name}/search",
-            }
-            for name in logs
-        ],
-        "count": len(logs),
-    })
+@app.get("/logTail", response_class=HTMLResponse)
+async def list_components_endpoint(request: Request):
+    """Return all known log components as HTML. Parse log file list URLs by regex."""
+    base = str(request.base_url).rstrip("/")
+    components = _list_components()
+    items = "\n".join(
+        f'<li><a href="{base}/logTail/{name}?list">{base}/logTail/{name}?list</a></li>'
+        for name in components
+    )
+    return HTMLResponse(f"<html><body><ul>\n{items}\n</ul></body></html>")
 
 
-@app.get("/api/logs/{filename}", response_class=PlainTextResponse)
-async def get_log(
-    filename: str,
-    start_time: Optional[str] = Query(default=None, description="YYYY-MM-DD HH:MM:SS.mmm"),
-    end_time:   Optional[str] = Query(default=None, description="YYYY-MM-DD HH:MM:SS.mmm"),
+@app.get("/logTail/{component}")
+async def component_endpoint(
+    component: str,
+    request: Request,
+    file: Optional[str] = Query(default=None, description="Log filename to retrieve"),
+    i: Optional[str] = Query(default=None, description="Include only lines containing this text (case-insensitive); plain-text response"),
+    e: Optional[str] = Query(default=None, description="Exclude lines containing this text (case-insensitive)"),
+    n: Optional[int] = Query(default=None, ge=1, le=100000, description="Return last N lines (tail)"),
+    f: Optional[str] = Query(default=None, description="From time HH:MM (inclusive)"),
+    t: Optional[str] = Query(default=None, description="To time HH:MM (inclusive)"),
 ):
-    lines = _read_log(filename)
-    if start_time or end_time:
-        lines = _filter_by_time(lines, start_time, end_time)
-    return PlainTextResponse("".join(lines))
+    if "/" in component or ".." in component:
+        raise HTTPException(status_code=400, detail="Invalid component name")
 
+    # ?list — enumerate available files for this component as HTML
+    if "list" in request.query_params and file is None and i is None:
+        files = _list_files_for_component(component)
+        if not files:
+            raise HTTPException(status_code=404, detail=f"Component '{component}' not found or has no log files")
+        base = str(request.base_url).rstrip("/")
+        items = "\n".join(
+            f'<li><a href="{base}/logTail/{component}?file={fname}">{base}/logTail/{component}?file={fname}</a></li>'
+            for fname in files
+        )
+        return HTMLResponse(f"<html><body><ul>\n{items}\n</ul></body></html>")
 
-@app.get("/api/logs/{filename}/tail", response_class=PlainTextResponse)
-async def tail_log(filename: str, lines: int = Query(default=100, ge=1, le=10000)):
-    all_lines = _read_log(filename)
-    return PlainTextResponse("".join(all_lines[-lines:]))
+    # ?file=filename — retrieve or search a specific log file
+    if file:
+        lines = _read_log(file)
 
+        # Apply time filter first
+        if f or t:
+            lines = _filter_by_time(lines, f, t)
 
-@app.get("/api/logs/{filename}/search", response_class=JSONResponse)
-async def search_log(
-    filename: str,
-    q: str = Query(..., description="Keyword to search for (case-insensitive)"),
-    start_time: Optional[str] = Query(default=None),
-    end_time:   Optional[str] = Query(default=None),
-):
-    all_lines = _read_log(filename)
-    if start_time or end_time:
-        all_lines = _filter_by_time(all_lines, start_time, end_time)
-    pattern = re.compile(re.escape(q), re.IGNORECASE)
-    matches = [
-        {"line_number": i + 1, "content": line.rstrip("\n")}
-        for i, line in enumerate(all_lines)
-        if pattern.search(line)
-    ]
-    if not matches:
-        raise HTTPException(status_code=404, detail=f"No matches found for {q!r}")
-    return JSONResponse({"keyword": q, "matches": matches, "count": len(matches)})
+        # Apply tail limit
+        if n:
+            lines = lines[-n:]
+
+        # ?i=text — include filter: return matching lines as plain text
+        if i:
+            include_pat = re.compile(re.escape(i), re.IGNORECASE)
+            if e:
+                exclude_pat = re.compile(re.escape(e), re.IGNORECASE)
+                lines = [ln for ln in lines if include_pat.search(ln) and not exclude_pat.search(ln)]
+            else:
+                lines = [ln for ln in lines if include_pat.search(ln)]
+            if not lines:
+                raise HTTPException(status_code=404, detail=f"No matches found for {i!r}")
+            return PlainTextResponse("".join(lines))
+
+        # Plain content — optionally exclude lines
+        if e:
+            exclude_pat = re.compile(re.escape(e), re.IGNORECASE)
+            lines = [ln for ln in lines if not exclude_pat.search(ln)]
+
+        return PlainTextResponse("".join(lines))
+
+    raise HTTPException(status_code=400, detail="Use ?list to enumerate files or ?file=<filename> to retrieve a log")
 
 
 # ---------------------------------------------------------------------------

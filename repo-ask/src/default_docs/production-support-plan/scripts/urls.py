@@ -12,7 +12,6 @@ Use this in Step 1 of the plan before handing off to production-support-main.
 
 import argparse
 import csv
-import json
 import os
 import re
 import sys
@@ -91,6 +90,8 @@ def list_log_descriptions(env: str = "local") -> list[dict]:
     Query the logtail server and return one entry per known log prefix
     with its summary and all timestamped files currently available.
 
+    For each prefix, calls ``{base_url}/{prefix}?list`` to discover files.
+
     Returns list of:
         {
           "prefix": str,
@@ -105,32 +106,32 @@ def list_log_descriptions(env: str = "local") -> list[dict]:
     base, log_entries = _parse_config(env.lower().strip())
 
     opener = _build_opener()
-    with opener.open(base, timeout=5) as resp:
-        data = json.loads(resp.read())
-
     ts_re = re.compile(r"^(.+)-(\d{12})\.log$")
-    prefix_files: dict[str, list[dict]] = {}
-    for entry in data.get("logs", []):
-        m = ts_re.match(entry["name"])
-        if not m:
-            continue
-        prefix, ts = m.group(1), m.group(2)
-        if prefix not in log_entries:
-            continue
-        prefix_files.setdefault(prefix, []).append(
-            {"timestamp": ts, "url": f"{base}/{entry['name']}"}
-        )
 
-    return [
-        {
+    result: list[dict] = []
+    for prefix in sorted(log_entries):
+        list_url = f"{base}/{prefix}?list"
+        try:
+            with opener.open(list_url, timeout=5) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+        except OSError as exc:
+            print(f"WARN: could not reach {list_url!r}: {exc}", file=sys.stderr)
+            result.append({"prefix": prefix, "summary": log_entries[prefix], "available": []})
+            continue
+
+        available: list[dict] = []
+        for url in re.findall(r'href="([^"]+)"', html):
+            m = ts_re.search(url)
+            if m and m.group(1).endswith(prefix):
+                available.append({"timestamp": m.group(2), "url": url})
+
+        result.append({
             "prefix":    prefix,
             "summary":   log_entries[prefix],
-            "available": sorted(
-                prefix_files.get(prefix, []), key=lambda x: x["timestamp"]
-            ),
-        }
-        for prefix in sorted(log_entries)
-    ]
+            "available": sorted(available, key=lambda x: x["timestamp"]),
+        })
+
+    return result
 
 
 if __name__ == "__main__":

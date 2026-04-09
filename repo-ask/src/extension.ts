@@ -130,7 +130,7 @@ function setupExtension(context: any) {
 
     let repoaskParticipant;
     if (vscode.chat && typeof vscode.chat.createChatParticipant === 'function') {
-        repoaskParticipant = vscode.chat.createChatParticipant('repoask', async (request, chatContext, response) => {
+        repoaskParticipant = vscode.chat.createChatParticipant('repoask', async (request, chatContext, response, token) => {
             const rawPrompt = request.prompt?.trim() || '';
 
             if (!rawPrompt) {
@@ -193,7 +193,7 @@ function setupExtension(context: any) {
                         readDocumentContent: (id: string) => readDocumentContent(storagePath, id),
                         storagePath,
                         extensionPath: context.extensionPath
-                    }, { request });
+                    }, { request, token });
                 } else if (request.command === 'production-support') {
                     await runProductionSupportCommand(vscode, prompt, response, {
                         documentService,
@@ -201,7 +201,7 @@ function setupExtension(context: any) {
                         readDocumentContent: (id: string) => readDocumentContent(storagePath, id),
                         storagePath,
                         extensionPath: context.extensionPath
-                    }, { request });
+                    }, { request, token });
                 } else if (isAdvanced) {
                     await runAdvancedDocSearch(vscode, prompt, response, {
                         readAllMetadata: () => readAllMetadata(storagePath),

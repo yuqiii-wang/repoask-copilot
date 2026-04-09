@@ -19,14 +19,14 @@ The key change from the flat format is that **keywords and time windows live ins
   "extracted_identifiers": ["US0378331005"],
   "scan_tasks": [
     {
-      "log_url": "http://<log-server>/api/logs/trading-system-<timestamp>.log",
+      "log_url": "http://<log-server>/logTail/trading-system?file=trading-system-<timestamp>.log",
       "words": ["/orders/", "oms system", "routing", "fill"],
       "time_ranges": [
         {"start": "2026-04-01 09:00:00.000", "end": "2026-04-01 13:00:00.000"}
       ]
     },
     {
-      "log_url": "<LOG_SCANNER_BASE_URL>/api/logs/error-scenarios-<timestamp>.log",
+      "log_url": "<LOG_SCANNER_BASE_URL>/logTail/error-scenarios?file=error-scenarios-<timestamp>.log",
       "words": ["unhandled", "fault", "rejection"],
       "time_ranges": [
         {"start": "2026-04-01 09:00:00.000", "end": "2026-04-01 13:00:00.000"}
@@ -194,6 +194,23 @@ If max rounds were exhausted without a confirmed root cause, list all **possible
 
 All scripts live in `scripts/` next to this document.
 
+### Log Search URL Parameters
+
+The log server (`/logTail/{component}?file={filename}`) accepts the following query parameters:
+
+| Param | Format | Description |
+|---|---|---|
+| `n` | integer | Return last N lines (tail) before any other filter |
+| `i` | text | Include only lines containing this text (case-insensitive); response is JSON |
+| `e` | text | Exclude lines containing this text (case-insensitive) |
+| `f` | `HH:MM` | Return lines from this time onwards (inclusive) |
+| `t` | `HH:MM` | Return lines up to this time (inclusive) |
+
+Parameters can be combined, e.g. `?file=app.log&f=09:00&t=13:00&i=ERROR&n=500`.
+`f`/`t` are applied before `n`; `i` returns JSON matches, `e` filters plain-text output.
+
+### Scripts
+
 | Script | Purpose | Runnable? |
 |---|---|---|
 | `main.py` | Async pool runner — accepts `--plan` (full plan JSON) or flat `--log-urls` args; each `ScanTask` carries its own keywords and window; all tasks run concurrently via `asyncio.gather`; returns merged hit-list JSON | **Yes** — sole entry-point |
@@ -208,22 +225,13 @@ python scripts/main.py --plan plan.json --seed
 python scripts/main.py --plan plan.json --seed --round 2 --max-rounds 5
 
 # Plan mode — inline JSON
-python scripts/main.py --plan '{"scan_tasks": [{"log_url": "http://127.0.0.1:8093/api/logs/trading-system-202604011300.log", "words": ["/orders/"], "time_ranges": [{"start": "2026-04-01 09:00:00.000", "end": "2026-04-01 13:00:00.000"}]}], "original_query": "", "extracted_identifiers": []}' --seed
+python scripts/main.py --plan '{"scan_tasks": [{"log_url": "http://127.0.0.1:8093/logTail/trading-system?file=trading-system-202604011300.log", "words": ["/orders/"], "time_ranges": [{"start": "2026-04-01 09:00:00.000", "end": "2026-04-01 13:00:00.000"}]}], "original_query": "", "extracted_identifiers": []}' --seed
 
 # Flat mode — ad-hoc, all logs share one keyword list
 python scripts/main.py \
   --log-urls \
-      http://127.0.0.1:8093/api/logs/trading-system-202604011300.log \
-      http://127.0.0.1:8093/api/logs/error-scenarios-202604011515.log \
-  --start-time "2026-04-01 09:00:00.000" \
-  --end-time "2026-04-01 13:00:00.000" \
-  --words error timeout --seed
-
-# Flat mode — multiple time windows (2 logs × 2 ranges = 4 parallel tasks)
-python scripts/main.py \
-  --log-urls \
-      http://127.0.0.1:8093/api/logs/trading-system-202604011300.log \
-      http://127.0.0.1:8093/api/logs/error-scenarios-202604011515.log \
+      http://127.0.0.1:8093/logTail/trading-system?file=trading-system-202604011300.log \
+      http://127.0.0.1:8093/logTail/error-scenarios?file=error-scenarios-202604011515.log \
   --time-ranges '[{"start": "2026-04-01 09:00:00.000", "end": "2026-04-01 12:00:00.000"}, {"start": "2026-04-01 14:00:00.000", "end": "2026-04-01 17:00:00.000"}]' \
   --seed
 ```

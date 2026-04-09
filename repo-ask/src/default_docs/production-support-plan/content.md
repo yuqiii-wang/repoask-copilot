@@ -6,13 +6,14 @@
 
 | Environment | Base URL |
 |-------------|----------|
-| local | `http://127.0.0.1:8093/api/logs` |
+| local | `http://127.0.0.1:8093/logTail` |
 
 > To add environments, extend this table (e.g. `staging`, `prod`).
 
 ### Available Logs (Reference Only)
 
-Log file URLs follow the pattern: `{base_url}/{prefix}-{timestamp}.log`  
+Log file URLs follow the pattern: `{base_url}/{prefix}?file={prefix}-{timestamp}.log`  
+List files for a component: `{base_url}/{prefix}?list`  
 Timestamp format: `YYYYMMDDHHmm`
 
 > **Important:** The table below is a documentation reference only. The **authoritative source of log prefix names is the runtime `## Available Log Listing`** injected into the session from the logtail server. Always use prefix values from that runtime listing — never invent or copy names from this table.

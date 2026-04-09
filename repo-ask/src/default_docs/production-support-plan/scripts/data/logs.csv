@@ -1,6 +1,6 @@
 environment|base_url|prefix|summary
-local|http://127.0.0.1:8093/api/logs|trading-system|Core OMS and order-lifecycle events — order submissions, fills, cancellations, and routing decisions.
-local|http://127.0.0.1:8093/api/logs|error-scenarios|Captured operational failure scenarios — unhandled exceptions, validation rejections, and system fault injections.
-local|http://127.0.0.1:8093/api/logs|settlement-processing|Trade settlement lifecycle — cash movements, custody reconciliation, and ledger commit confirmations.
-local|http://127.0.0.1:8093/api/logs|risk-management|Portfolio risk metrics and limit checks — VaR calculations, stress-test results, concentration breaches, and counterparty exposure.
-local|http://127.0.0.1:8093/api/logs|market-data-sync|Market data ingestion pipeline — equity quotes, FX rates, index snapshots, and pricing feed health.
+local|http://127.0.0.1:8093/logTail|trading-system|Core OMS and order-lifecycle events — order submissions, fills, cancellations, and routing decisions.
+local|http://127.0.0.1:8093/logTail|error-scenarios|Captured operational failure scenarios — unhandled exceptions, validation rejections, and system fault injections.
+local|http://127.0.0.1:8093/logTail|settlement-processing|Trade settlement lifecycle — cash movements, custody reconciliation, and ledger commit confirmations.
+local|http://127.0.0.1:8093/logTail|risk-management|Portfolio risk metrics and limit checks — VaR calculations, stress-test results, concentration breaches, and counterparty exposure.
+local|http://127.0.0.1:8093/logTail|market-data-sync|Market data ingestion pipeline — equity quotes, FX rates, index snapshots, and pricing feed health.

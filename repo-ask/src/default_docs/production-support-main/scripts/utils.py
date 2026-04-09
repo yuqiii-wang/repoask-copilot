@@ -19,6 +19,7 @@ import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import httpx
 
@@ -85,6 +86,33 @@ def validate_tokenized_query(
 # Core async scan
 # ---------------------------------------------------------------------------
 
+def _log_name_from_url(url: str) -> str:
+    """Extract the log filename from a log URL.
+
+    Supports the new component-based URL:
+        http://host/logTail/{component}?file={filename}
+    as well as the legacy path-based URL:
+        http://host/api/logs/{filename}
+    """
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    if "file" in qs:
+        return qs["file"][0]
+    return parsed.path.rstrip("/").split("/")[-1]
+
+
+def _build_search_url(log_url: str, word: str, start: str, end: str) -> str:
+    """Build a fully-encoded search URL using the short query params (i, f, t)."""
+    parsed = urlparse(log_url)
+    params = parse_qs(parsed.query, keep_blank_values=True)
+    params["i"] = [word]
+    # Extract HH:MM from full datetime strings like "2026-04-01 09:00:00.000"
+    params["f"] = [start[11:16]] if len(start) >= 16 else [start]
+    params["t"] = [end[11:16]]   if len(end)   >= 16 else [end]
+    new_query = urlencode({k: v[0] for k, v in params.items()})
+    return urlunparse(parsed._replace(query=new_query))
+
+
 async def _search_word(
     client: httpx.AsyncClient,
     sem: asyncio.Semaphore,
@@ -93,16 +121,13 @@ async def _search_word(
     start: str,
     end: str,
 ) -> tuple[str, list[str]]:
-    """GET {log_url}/search?q=word — returns (word, [timestamps])."""
+    """GET fully-encoded search URL — returns (word, [timestamps])."""
+    url = _build_search_url(log_url, word, start, end)
     try:
         async with sem:
-            resp = await client.get(
-                f"{log_url}/search",
-                params={"q": word, "start_time": start, "end_time": end},
-                timeout=_TIMEOUT,
-            )
+            resp = await client.get(url, timeout=_TIMEOUT)
     except (httpx.TransportError, httpx.TimeoutException) as exc:
-        print(f"WARN: search failed for {log_url!r} word={word!r}: {exc}", file=sys.stderr)
+        print(f"WARN: search failed for {url!r} word={word!r}: {exc}", file=sys.stderr)
         return word, []
 
     if resp.status_code == 404:
@@ -112,14 +137,9 @@ async def _search_word(
         print(f"WARN: HTTP {resp.status_code} for {log_url!r} word={word!r}", file=sys.stderr)
         return word, []
 
-    try:
-        matches = resp.json().get("matches", [])
-    except Exception:
-        return word, []
-
     timestamps: list[str] = []
-    for m in matches:
-        hit = _TS_RE.match(m.get("content", ""))
+    for line in resp.text.splitlines():
+        hit = _TS_RE.match(line)
         if hit:
             timestamps.append(hit.group(1))
     return word, timestamps
@@ -177,8 +197,8 @@ def merge_hits(results: dict[str, dict[str, Any]]) -> dict[str, dict[str, list[s
             
         # extract log URL by splitting on '['
         log_url = task_key.split('[')[0]
-        # get filename from url
-        log_name = log_url.rstrip('/').split('/')[-1] if '/' in log_url else log_url
+        # extract filename from the URL (handles both ?file= and path-based forms)
+        log_name = _log_name_from_url(log_url)
         
         if log_name not in merged:
             merged[log_name] = {}

@@ -55,7 +55,8 @@ async function runLLMWithTools(
     initialMessages: any[],
     response: any,
     token: any,
-    maxIter = 8
+    maxIter = 8,
+    toolInvocationToken?: any
 ): Promise<string> {
     // Filter out tools with invalid schemas (object type missing properties).
     // Some 3rd-party extensions register tools whose inputSchema lacks `properties`,
@@ -105,8 +106,12 @@ async function runLLMWithTools(
         const resultParts: any[] = [];
         for (const call of toolCalls) {
             try {
+                const invokeOpts: any = { input: call.input };
+                if (toolInvocationToken !== undefined) {
+                    invokeOpts.toolInvocationToken = toolInvocationToken;
+                }
                 const result = await vscodeApi.lm.invokeTool(
-                    call.name, { input: call.input }, token
+                    call.name, invokeOpts, token
                 );
                 resultParts.push(
                     new vscodeApi.LanguageModelToolResultPart(call.callId, result.content)
@@ -223,7 +228,7 @@ async function runProductionSupportCommand(
         storagePath: string;
         extensionPath: string;
     },
-    options: { request?: any } = {}
+    options: { request?: any; token?: any } = {}
 ) {
     const { documentService, readAllMetadata, readDocumentContent, storagePath, extensionPath } = deps;
 
@@ -352,7 +357,7 @@ async function runProductionSupportCommand(
             vsModel.sendRequest(
                 [vscodeApi.LanguageModelChatMessage.User(fullPrompt)],
                 {},
-                options?.request?.token
+                options?.token
             ),
             LLM_RESPONSE_TIMEOUT_MS,
             null
@@ -452,7 +457,7 @@ async function runProductionSupportMainSkill(
         storagePath: string;
         extensionPath: string;
     },
-    options: { request?: any } = {}
+    options: { request?: any; token?: any } = {}
 ) {
     const { readAllMetadata, readDocumentContent, storagePath, extensionPath } = deps;
 
@@ -613,7 +618,10 @@ async function runProductionSupportMainSkill(
         mainAnalysisText = await runLLMWithTools(
             vscodeApi, vsModel,
             [vscodeApi.LanguageModelChatMessage.User(mainPrompt)],
-            response, options?.request?.token
+            response,
+            options?.token,
+            20,
+            options?.request?.toolInvocationToken
         );
     } catch (err: any) {
         response.markdown(`Error running main skill: ${err?.message || err}`);
