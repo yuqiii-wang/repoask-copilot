@@ -17,14 +17,27 @@ import asyncio
 import json
 import re
 import sys
+from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 
 import httpx
 
 from rules import COMMON_ERROR_WORDS, guess_pattern, tokenize_query
+from keyword_filter import filter_keywords
 
 _TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 _TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})")
+_TS_FMT = "%Y-%m-%d %H:%M:%S.%f"
+
+
+def _default_time_range(lookback_minutes: int = 120) -> tuple[str, str]:
+    """Return (start, end) strings covering the last *lookback_minutes* up to now (UTC)."""
+    now = datetime.utcnow().replace(microsecond=0)
+    start = now - timedelta(minutes=lookback_minutes)
+    return (
+        start.strftime("%Y-%m-%d %H:%M:%S.000"),
+        now.strftime("%Y-%m-%d %H:%M:%S.999"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +87,7 @@ def validate_tokenized_query(
 
 async def _search_word(
     client: httpx.AsyncClient,
+    sem: asyncio.Semaphore,
     log_url: str,
     word: str,
     start: str,
@@ -81,14 +95,18 @@ async def _search_word(
 ) -> tuple[str, list[str]]:
     """GET {log_url}/search?q=word — returns (word, [timestamps])."""
     try:
-        resp = await client.get(
-            f"{log_url}/search",
-            params={"q": word, "start_time": start, "end_time": end},
-            timeout=_TIMEOUT,
-        )
+        async with sem:
+            resp = await client.get(
+                f"{log_url}/search",
+                params={"q": word, "start_time": start, "end_time": end},
+                timeout=_TIMEOUT,
+            )
     except (httpx.TransportError, httpx.TimeoutException) as exc:
         print(f"WARN: search failed for {log_url!r} word={word!r}: {exc}", file=sys.stderr)
         return word, []
+
+    if resp.status_code == 404:
+        return word, []  # no matches — server returns 404 when keyword not found
 
     if resp.status_code != 200:
         print(f"WARN: HTTP {resp.status_code} for {log_url!r} word={word!r}", file=sys.stderr)
@@ -109,16 +127,17 @@ async def _search_word(
 
 async def scan_log(
     client: httpx.AsyncClient,
+    sem: asyncio.Semaphore,
     task: ScanTask,
 ) -> dict[str, Any]:
     """
     Search all words in *task* against the log in parallel.
 
-    Fires one GET per word to ``{log_url}/search`` and collects timestamps.
+    Fires one GET per word to ``{log_url}/search`` and collects timestamps. 
     Returns ``{word: [timestamps]}``; never raises.
     """
     word_results = await asyncio.gather(
-        *[_search_word(client, task.log_url, w, task.start, task.end) for w in task.words]
+        *[_search_word(client, sem, task.log_url, w, task.start, task.end) for w in task.words]
     )
     return {word: ts for word, ts in word_results}
 
@@ -130,9 +149,11 @@ async def scan_all(tasks: list[ScanTask]) -> dict[str, dict[str, Any]]:
     Each task fires one GET per keyword against its log URL — all in parallel.
     Returns a dict keyed by ``"{log_url}[{start}~{end}]"``.
     """
-    async with httpx.AsyncClient() as client:
+    sem = asyncio.Semaphore(5)
+    # Use explicit transport to bypass system proxy settings (which can return 502 for localhost)
+    async with httpx.AsyncClient(transport=httpx.AsyncHTTPTransport()) as client:
         results = await asyncio.gather(
-            *[scan_log(client, task) for task in tasks]
+            *[scan_log(client, sem, task) for task in tasks]
         )
     return {_task_key(task): result for task, result in zip(tasks, results)}
 
@@ -141,13 +162,11 @@ async def scan_all(tasks: list[ScanTask]) -> dict[str, dict[str, Any]]:
 # Merge helper
 # ---------------------------------------------------------------------------
 
-def merge_hits(results: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+def merge_hits(results: dict[str, dict[str, Any]]) -> dict[str, dict[str, list[str]]]:
     """
-    Flatten per-task results into a single keyword -> sorted timestamp list.
-
-    Error entries (``_error`` key) are printed to stderr and skipped.
+    Flatten per-task results into log file -> keyword -> sorted timestamp list.
     """
-    merged: dict[str, list[str]] = {}
+    merged: dict[str, dict[str, list[str]]] = {}
     for task_key, hit_map in results.items():
         if "_error" in hit_map:
             print(
@@ -155,13 +174,25 @@ def merge_hits(results: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
                 file=sys.stderr,
             )
             continue
+            
+        # extract log URL by splitting on '['
+        log_url = task_key.split('[')[0]
+        # get filename from url
+        log_name = log_url.rstrip('/').split('/')[-1] if '/' in log_url else log_url
+        
+        if log_name not in merged:
+            merged[log_name] = {}
+            
         for keyword, timestamps in hit_map.items():
+            if "_error" in keyword:  # skip error keys just in case
+                continue
             if not isinstance(timestamps, list):
                 continue
-            merged.setdefault(keyword, []).extend(timestamps)
+            merged[log_name].setdefault(keyword, []).extend(timestamps)
 
-    for kw in merged:
-        merged[kw] = sorted(set(merged[kw]))
+    for log_name, kws in merged.items():
+        for kw in kws:
+            merged[log_name][kw] = sorted(set(merged[log_name][kw]))
 
     return merged
 
@@ -200,7 +231,11 @@ def _resolve_identifiers(
     return valid
 
 
-def build_tasks_from_plan(plan: dict, seed: bool = False) -> list[ScanTask]:
+def build_tasks_from_plan(
+    plan: dict,
+    seed: bool = False,
+    source_dir: "str | None" = None,
+) -> list[ScanTask]:
     """
     Expand a production-support-plan JSON into a flat list of ScanTask objects.
 
@@ -208,11 +243,17 @@ def build_tasks_from_plan(plan: dict, seed: bool = False) -> list[ScanTask]:
     produced.  ``seed=True`` prepends COMMON_ERROR_WORDS to every task's word
     list.  ``extracted_identifiers`` are validated against ``original_query``
     and appended as raw search terms.
+
+    ``source_dir`` enables keyword validation: words not traceable to the
+    original_query or project source code literals are dropped before scanning.
     """
     original_query = plan.get("original_query", "")
     identifier_words = _resolve_identifiers(
         plan.get("extracted_identifiers", []), original_query
     )
+    # Plan-level keywords from the populated plan template (explicit fallback /
+    # supplement to scan_tasks[].words which were embedded by build_plan.py).
+    plan_level_keywords: list[str] = list(plan.get("proposed_keywords", []))
 
     tasks: list[ScanTask] = []
     for entry in plan.get("scan_tasks", []):
@@ -221,17 +262,51 @@ def build_tasks_from_plan(plan: dict, seed: bool = False) -> list[ScanTask]:
             base_words.extend(COMMON_ERROR_WORDS)
         base_words.extend(entry.get("words", []))
         seen = set(base_words)
+        # Merge in plan-level proposed_keywords so the populated plan output
+        # always feeds the log screener even if scan_tasks.words differ.
+        for kw in plan_level_keywords:
+            if kw not in seen:
+                base_words.append(kw)
+                seen.add(kw)
         for tok in identifier_words:
             if tok not in seen:
                 base_words.append(tok)
                 seen.add(tok)
-        task_words = _dedup(base_words)
+
+        # Filter out hallucinated keywords: keep only words from query or code
+        non_seed = [w for w in base_words if w not in COMMON_ERROR_WORDS]
+        kept, dropped = filter_keywords(non_seed, original_query, source_dir)
+        if dropped:
+            print(
+                f"WARN: keywords removed (not in query or code): {dropped}",
+                file=sys.stderr,
+            )
+        seed_words = [w for w in base_words if w in COMMON_ERROR_WORDS] if seed else []
+        task_words = _dedup(seed_words + kept)
 
         for tr in entry.get("time_ranges", []):
+            start = tr.get("start") or None
+            end   = tr.get("end")   or None
+            if not start or not end:
+                default_start, default_end = _default_time_range()
+                if not start:
+                    print(
+                        f"WARN: null start_time for {entry.get('log_url', '?')} — "
+                        f"defaulting to now-2h ({default_start})",
+                        file=sys.stderr,
+                    )
+                    start = default_start
+                if not end:
+                    print(
+                        f"WARN: null end_time for {entry.get('log_url', '?')} — "
+                        f"defaulting to now ({default_end})",
+                        file=sys.stderr,
+                    )
+                    end = default_end
             tasks.append(ScanTask(
                 log_url=entry["log_url"],
-                start=tr["start"],
-                end=tr["end"],
+                start=start,
+                end=end,
                 words=task_words,
             ))
 
@@ -248,12 +323,16 @@ def build_tasks_from_args(
     time_ranges_json: str | None,
     start_time: str | None,
     end_time: str | None,
+    source_dir: "str | None" = None,
 ) -> list[ScanTask]:
     """
     Build a flat list of ScanTask objects from flat CLI values.
 
     All log URLs share one keyword list and one set of time windows
     (cartesian product: N logs × M windows = N×M tasks).
+
+    ``source_dir`` enables keyword validation: words not traceable to the
+    user query or project source code literals are dropped before scanning.
     """
     log_words: list[str] = list(words)
     tokenized_query: list[str] = []
@@ -284,7 +363,21 @@ def build_tasks_from_args(
             tokenized_query = extra
         log_words = extra + log_words
 
-    log_words = _dedup(log_words)
+    # Filter out hallucinated keywords: keep only words from query or code.
+    # COMMON_ERROR_WORDS (added by --seed) are exempt from validation.
+    effective_query = original_query or query
+    if effective_query:
+        non_seed = [w for w in log_words if w not in COMMON_ERROR_WORDS]
+        kept, dropped = filter_keywords(non_seed, effective_query, source_dir)
+        if dropped:
+            print(
+                f"WARN: keywords removed (not in query or code): {dropped}",
+                file=sys.stderr,
+            )
+        seed_words = [w for w in log_words if w in COMMON_ERROR_WORDS]
+        log_words = _dedup(seed_words + kept)
+    else:
+        log_words = _dedup(log_words)
 
     time_ranges: list[tuple[str, str]] = []
     if time_ranges_json:

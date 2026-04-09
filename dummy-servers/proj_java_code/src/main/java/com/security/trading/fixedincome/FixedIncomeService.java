@@ -98,6 +98,14 @@ public class FixedIncomeService {
                 request.getIsin(), request.getFaceValue(),
                 request.getCouponRate(), request.getMarketPrice());
 
+        // Validate ISIN format: 2 alpha + 9 alphanumeric + 1 digit = 12 chars
+        if (request.getIsin() == null || !request.getIsin().matches("^[A-Z]{2}[A-Z0-9]{9}[0-9]$")) {
+            logger.error("Bond pricing exception: ISIN={}, exception=ISINFormatException: Invalid ISIN format, expected 12 chars, got {}",
+                    request.getIsin(),
+                    request.getIsin() != null ? request.getIsin().length() : 0);
+            return null;
+        }
+
         BondCalculationResult result = new BondCalculationResult();
         result.setIsin(request.getIsin());
 
@@ -120,11 +128,17 @@ public class FixedIncomeService {
                 request.getMarketPrice(), String.format("%.4f", currentYield));
 
         // YTM via Newton-Raphson
+        int maturityYears = request.getMaturityYears() > 0 ? request.getMaturityYears() : 10;
+        if (maturityYears > 30) {
+            logger.error("Bond pricing exception: ISIN={}, exception=YieldCurveException: Cannot interpolate yield for maturity={}Y, maxSupportedMaturity=30Y",
+                    request.getIsin(), maturityYears);
+            return null;
+        }
         double ytm = estimateYtm(request.getMarketPrice(), request.getFaceValue(),
-                request.getCouponRate(), 10);
+                request.getCouponRate(), maturityYears);
         result.setYieldToMaturity(ytm * 100);
-        logger.info("ISIN={}: YTM (Newton-Raphson, 10Y) = {}%",
-                request.getIsin(), String.format("%.4f", ytm * 100));
+        logger.info("ISIN={}: YTM (Newton-Raphson, {}Y) = {}%",
+                request.getIsin(), maturityYears, String.format("%.4f", ytm * 100));
 
         // Macaulay and Modified Duration
         double macaulay = computeMacaulayDuration(request.getMarketPrice(),

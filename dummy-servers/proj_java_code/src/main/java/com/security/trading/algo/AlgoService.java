@@ -34,8 +34,17 @@ public class AlgoService {
     public AlgoStrategy activateStrategy(String strategyId) {
         AlgoStrategy strategy = strategies.get(strategyId);
         if (strategy != null) {
+            // Require a successful backtest with sufficient data before activation
+            if (strategy.getMinBarsAvailable() > 0 && strategy.getMinBarsAvailable() < 252) {
+                logger.error("Strategy backtest FAILED: strategyId={}, reason=InsufficientDataException: Only {} bars available, minimum required=252",
+                        strategyId, strategy.getMinBarsAvailable());
+                logger.error("Strategy CANNOT be activated due to failed backtest: id={}, status=INACTIVE", strategyId);
+                return strategy;
+            }
             strategy.setStatus("ACTIVE");
-            logger.info("Strategy ACTIVATED: id={}, type={}", strategyId, strategy.getType());
+            logger.info("Strategy ACTIVATED: id={}, type={}, window={} EDT",
+                    strategyId, strategy.getType(),
+                    strategy.getTradingWindow() != null ? strategy.getTradingWindow() : "09:30:00-15:30:00");
         } else {
             logger.warn("Activate request for unknown strategyId={}", strategyId);
         }

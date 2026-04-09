@@ -12,10 +12,8 @@ __pycache__
 uploads
 *.pth
 *.pkl
-*.csv
 *.pt
 offline_records
-data
 .pytest_cache
 .venv
 local-store

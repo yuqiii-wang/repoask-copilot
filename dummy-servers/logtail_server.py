@@ -68,9 +68,32 @@ def _parse_ts(line: str) -> Optional[datetime]:
         return None
 
 
+_QUERY_TS_FMTS = [
+    "%Y-%m-%d %H:%M:%S.%f",   # 2026-04-01 09:00:00.000  (primary)
+    "%Y-%m-%d %H:%M:%S",       # 2026-04-01 09:00:00
+    "%Y-%m-%dT%H:%M:%S.%fZ",  # 2026-04-01T09:00:00.000Z
+    "%Y-%m-%dT%H:%M:%SZ",      # 2026-04-01T09:00:00Z
+    "%Y-%m-%dT%H:%M:%S.%f",   # 2026-04-01T09:00:00.000
+    "%Y-%m-%dT%H:%M:%S",       # 2026-04-01T09:00:00
+]
+
+
+def _parse_query_ts(ts_str: str) -> datetime:
+    """Parse a query timestamp string trying several common formats. Raises HTTPException 400 on failure."""
+    for fmt in _QUERY_TS_FMTS:
+        try:
+            return datetime.strptime(ts_str, fmt)
+        except ValueError:
+            continue
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unrecognised timestamp format: {ts_str!r}. Expected YYYY-MM-DD HH:MM:SS[.mmm]",
+    )
+
+
 def _filter_by_time(lines: list[str], start: Optional[str], end: Optional[str]) -> list[str]:
-    start_dt = datetime.strptime(start, TIMESTAMP_FMT) if start else None
-    end_dt = datetime.strptime(end, TIMESTAMP_FMT) if end else None
+    start_dt = _parse_query_ts(start) if start else None
+    end_dt   = _parse_query_ts(end)   if end   else None
     result = []
     current_ts: Optional[datetime] = None
     for line in lines:
@@ -169,6 +192,8 @@ async def search_log(
         for i, line in enumerate(all_lines)
         if pattern.search(line)
     ]
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"No matches found for {q!r}")
     return JSONResponse({"keyword": q, "matches": matches, "count": len(matches)})
 
 

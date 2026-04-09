@@ -31,10 +31,10 @@ import {
 import { createLanguageModelTools } from './extension/tools/vsCodeTools';
 import { createDocumentService } from './extension/documentService';
 import { createSidebarController } from './extension/sidebarController';
-import { createRefreshCommand, createShowLogActionButtonCommand, createCheckCodeLogicCommand, createAdvancedDocSearchCommand } from './extension/commands';
+import { createRefreshCommand, createShowLogActionButtonCommand, createCheckCodeLogicCommand, createAdvancedDocSearchCommand, createProductionSupportMainCommand } from './extension/commands';
 import { answerGeneralPromptQuestion } from './extension/chat/generalAnswer';
 import { runAdvancedDocSearch } from './extension/chat/advancedDocSearch';
-import { runSkillCommand } from './extension/chat/skillChat';
+import { runProductionSupportCommand, runProductionSupportMainSkill } from './extension/chat/productionSupportChat';
 
 const EMPTY_STORE_HINT = 'No local documents found. Use the sidebar popup to sync to Confluence Cloud.';
 const TOOL_NAMES = {
@@ -138,10 +138,15 @@ function setupExtension(context: any) {
                 return;
             }
 
-            // Route [ADV] prefix to the advanced agentic doc-search handler
             const ADV_PREFIX = '[ADV] ';
+            const MAIN_PREFIX = '[MAIN] ';
             const isAdvanced = rawPrompt.startsWith(ADV_PREFIX);
-            const prompt = isAdvanced ? rawPrompt.slice(ADV_PREFIX.length).trim() : rawPrompt;
+            const isMain = !isAdvanced && rawPrompt.startsWith(MAIN_PREFIX);
+            const prompt = isAdvanced
+                ? rawPrompt.slice(ADV_PREFIX.length).trim()
+                : isMain
+                    ? rawPrompt.slice(MAIN_PREFIX.length).trim()
+                    : rawPrompt;
 
             if (!prompt) {
                 response.markdown('Ask a question.');
@@ -181,8 +186,16 @@ function setupExtension(context: any) {
 
                 const loggedPrompts = context.globalState.get('repoAsk.loggedPrompts', []);
 
-                if (request.command === 'production-support') {
-                    await runSkillCommand(vscode, prompt, response, {
+                if (request.command === 'production-support' && isMain) {
+                    await runProductionSupportMainSkill(vscode, prompt, response, {
+                        documentService,
+                        readAllMetadata: () => readAllMetadata(storagePath),
+                        readDocumentContent: (id: string) => readDocumentContent(storagePath, id),
+                        storagePath,
+                        extensionPath: context.extensionPath
+                    }, { request });
+                } else if (request.command === 'production-support') {
+                    await runProductionSupportCommand(vscode, prompt, response, {
                         documentService,
                         readAllMetadata: () => readAllMetadata(storagePath),
                         readDocumentContent: (id: string) => readDocumentContent(storagePath, id),
@@ -235,13 +248,17 @@ function setupExtension(context: any) {
     // Register advanced doc search command
     const advancedDocSearchCommandDisposable = createAdvancedDocSearchCommand({ vscode });
 
+    // Register production support main command (triggered by the "Continue" button)
+    const productionSupportMainCommandDisposable = createProductionSupportMainCommand({ vscode });
+
     const baseSubscriptions = [
         webviewProviderDisposable,
         ...lmToolDisposables,
         refreshCommandDisposable,
         showLogActionButtonCommandDisposable,
         checkCodeLogicCommandDisposable,
-        advancedDocSearchCommandDisposable
+        advancedDocSearchCommandDisposable,
+        productionSupportMainCommandDisposable
     ];
 
     if (repoaskParticipant) {

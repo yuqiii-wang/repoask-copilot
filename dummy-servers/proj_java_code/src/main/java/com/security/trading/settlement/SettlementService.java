@@ -61,11 +61,15 @@ public class SettlementService {
                 if (requiredCash > availableCash) {
                     double shortfall = requiredCash - availableCash;
                     logger.error("Settlement instruction FAILED: settlementId={}, reason=INSUFFICIENT_CASH, " +
-                        "requiredCash={}, availableCash={}, shortfall={}", 
-                        settlementId, String.format("%.2f", requiredCash), 
+                        "requiredCash={}, availableCash={}, shortfall={}",
+                        settlementId, String.format("%.2f", requiredCash),
                         String.format("%.2f", availableCash), String.format("%.2f", shortfall));
                     settlement.setStatus("FAILED");
                     settlement.setFailureReason("Insufficient funds");
+                    // Trigger cash buffer reconciliation when utilization is high
+                    double bufferUtilization = requiredCash / (availableCash + requiredCash) * 100.0;
+                    logger.info("Invoking cash buffer reconciliation: bufferUtilization={}%, triggeringAuto-reconciliation",
+                        String.format("%.1f", bufferUtilization));
                     return settlement;
                 }
                 

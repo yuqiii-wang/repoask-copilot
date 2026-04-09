@@ -1,9 +1,3 @@
----
-name: behavior-driven-development
-description: Behavior-Driven Development with Cucumber and Given-When-Then scenarios
-user-invocable: false
----
-
 # Behavior-Driven Development (BDD) Skill
 
 ## When to Use

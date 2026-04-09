@@ -1,5 +1,5 @@
 {
-  "id": "production-support-main-skill",
+  "id": "production-support-main",
   "title": "Production Support Main Skill",
   "summary": "Privacy-safe production log investigation. Takes the structured scan plan from production-support-plan as its guide: seeds keywords from COMMON_ERROR_WORDS and incident domain, LLM self-filters extracted identifiers via guess_pattern(), expands keywords from local code, runs N×M parallel async log scans, correlates hit timestamps, and produces a root-cause incident summary with traced URLs.",
   "type": "skill",
@@ -14,11 +14,6 @@
     "runbook",
     "devops"
   ],
-  "scripts": {
-    "entrypoint": "scripts/main.py",
-    "libs": ["scripts/urls.py", "scripts/rules.py"],
-    "note": "Only main.py is executable. urls.py and rules.py are library modules imported by main.py."
-  },
   "keywords": {
     "title": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },
     "structural": { "1gram": {}, "2gram": {}, "3gram": {}, "4gram": {} },

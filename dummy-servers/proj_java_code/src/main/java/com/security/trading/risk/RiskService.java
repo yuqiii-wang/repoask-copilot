@@ -175,4 +175,99 @@ public class RiskService {
     public RiskAssessment getAssessment(String assessmentId) {
         return assessments.get(assessmentId);
     }
+
+    /**
+     * Start daily risk monitoring. Called at market open.
+     */
+    public void startDailyMonitoring(LocalDateTime marketOpen, LocalDateTime marketClose) {
+        logger.info("Daily risk monitoring started: monitoringDate={}, marketOpen={}, marketClose={}",
+                marketOpen.toLocalDate(), marketOpen, marketClose);
+        logger.debug("Risk limit parameters: VaR95=6.00%, VaR99=8.50%, CS_sector_max=40.00%, CS_counterparty_max=35.00%, notional_limit=500M USD");
+    }
+
+    /**
+     * Log the portfolio opening snapshot.
+     */
+    public void logPortfolioSnapshot(String portfolioId, double portfolioValue, int instrumentCount) {
+        logger.info("Opening portfolio snapshot: portfolioValue={}, instrument_count={}, currency_exposure=[USD=72.1%, EUR=14.3%, GBP=8.2%, JPY=5.4%]",
+                String.format("%.2f", portfolioValue), instrumentCount);
+        double var95 = Z_95 * DEFAULT_ANNUAL_VOLATILITY / Math.sqrt(TRADING_DAYS) * portfolioValue;
+        double var99 = Z_99 * DEFAULT_ANNUAL_VOLATILITY / Math.sqrt(TRADING_DAYS) * portfolioValue;
+        double var95Pct = var95 / portfolioValue * 100;
+        double var99Pct = var99 / portfolioValue * 100;
+        logger.info("Portfolio VaR snapshot: portfolioValue={}, VaR95={}M ({}%), VaR99={}M ({}%), status=WITHIN_LIMIT",
+                String.format("%.2f", portfolioValue),
+                String.format("%.2f", var95 / 1_000_000),
+                String.format("%.2f", var95Pct),
+                String.format("%.2f", var99 / 1_000_000),
+                String.format("%.2f", var99Pct));
+    }
+
+    /**
+     * Evaluate sector concentration and warn if any sector exceeds the limit.
+     */
+    public void checkSectorConcentration(java.util.Map<String, Double> sectorWeights, double totalPortfolioValue) {
+        double sectorLimit = 40.0;
+        for (java.util.Map.Entry<String, Double> entry : sectorWeights.entrySet()) {
+            String sector = entry.getKey();
+            double amount = entry.getValue();
+            double pct = amount / totalPortfolioValue * 100.0;
+            logger.info("Sector concentration: {}={}M ({}%)", sector,
+                    String.format("%.1f", amount / 1_000_000), String.format("%.2f", pct));
+            if (pct > sectorLimit) {
+                logger.warn("SECTOR CONCENTRATION WARNING: {} sector exposure={}% exceeds limit={}%, breach={}%, action=MONITOR",
+                        sector, String.format("%.2f", pct), sectorLimit,
+                        String.format("%.2f", pct - sectorLimit));
+            }
+        }
+    }
+
+    /**
+     * Run a parallel-shift stress test on the portfolio.
+     */
+    public void runStressTest(String scenarioName, double portfolioValue, double shockPct) {
+        double stressed = portfolioValue * (1.0 - shockPct);
+        double loss = portfolioValue - stressed;
+        double lossPct = loss / portfolioValue * 100;
+        String status = lossPct < 5.0 ? "WITHIN_LIMIT" : "LIMIT_BREACHED";
+        logger.info("Stress test {}: current={}, stressed={}, loss={} ({}%), status={}",
+                scenarioName,
+                String.format("%.2f", portfolioValue),
+                String.format("%.2f", stressed),
+                String.format("%.2f", loss),
+                String.format("%.2f", lossPct),
+                status);
+    }
+
+    /**
+     * Log the risk dashboard summary and recommendations.
+     */
+    public void logRiskDashboard(double portfolioValue, double var99M, double riskScore, String statusColor) {
+        logger.info("Risk dashboard: timestamp={}, VaR99={}M, riskScore={}/10.0, status={} (Elevated)",
+                LocalDateTime.now(), String.format("%.2f", var99M), String.format("%.1f", riskScore), statusColor);
+        logger.info("Recommendation: REDUCE TECH exposure (42.92% vs limit 40%), WATCH GS credit (87.6% utilized), rebalance to ENERGY or UTILITIES");
+    }
+
+    /**
+     * Enforce an intraday position limit breach — block new buys.
+     */
+    public void enforcePositionLimitBreach(String portfolioId, String instrument, int currentShares, int limitShares, List<String> blockedOrderIds) {
+        int breachQty = currentShares - limitShares;
+        logger.error("RISK ALERT: Intraday position limit BREACH: portfolioId={}, instrument={}, currentPosition={} shares > limit={}, breachQty={}, action=BLOCK_NEW_BUYS",
+                portfolioId, instrument, currentShares, limitShares, breachQty);
+        logger.warn("Position limit enforcement: blocked {} pending BUY orders for {} ({})",
+                blockedOrderIds.size(), instrument, String.join(", ", blockedOrderIds));
+    }
+
+    /**
+     * Handle a missing portfolio error during VaR calculation.
+     */
+    public void handleVarCalculationError(String portfolioId, String exceptionMsg, Double lastKnownVarM, LocalDateTime lastKnownAt) {
+        logger.error("VaR calculation exception: portfolioId={}, exception={}",
+                portfolioId, exceptionMsg);
+        if (lastKnownVarM != null && lastKnownAt != null) {
+            logger.warn("Using last known VaR={}M (from {}) as stale fallback — flagged for manual review",
+                    String.format("%.2f", lastKnownVarM), lastKnownAt.toLocalTime());
+        }
+    }
 }

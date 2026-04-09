@@ -14,14 +14,23 @@ public class MarketDataService {
     private final ConcurrentHashMap<String, MarketData> marketDataCache = new ConcurrentHashMap<>();
     
     public void startMarketDataSync() {
-        logger.info("Market open: exchangeTime={} EDT, syncing market data from all sources: Bloomberg, Reuters, ICE, CME",
-            LocalDateTime.now());
-        logger.info("Data source connection status: Bloomberg=CONNECTED, Reuters=CONNECTED, ICE=CONNECTED, CME=CONNECTED, CBOE=CONNECTED");
-        
+        logger.info("Pre-market data sync started: syncTime={} EDT", LocalDateTime.now());
+        logger.info("Data source connections: Bloomberg=CONNECTED, Reuters=CONNECTED, ICE=CONNECTED, CME=CONNECTED, CBOE=CONNECTED");
+
         // Simulate loading 12456 symbols
-        logger.debug("Initial data sync: totalSymbols={}, loaded={}, missing={}, latency_ms={}",
-            12456, 12456, 0, 14189);
-    }
+        logger.debug("Pre-market load: totalSymbols={}, loaded={}, missing={} (exotic_EM), latency_ms={}",
+            12456, 12450, 6, 13800);
+
+        // Simulate occasional Reuters startup failure with retry/restore
+        if (Math.random() < 0.15) {
+            logger.error("Market data sync FAILED on startup: source=REUTERS, exception=ConnectionTimeoutException: timeout after 30000ms, attempt=1/3");
+            logger.warn("Retrying Reuters connection with exponential backoff: nextRetry={}", LocalDateTime.now().plusSeconds(30));
+            logger.info("Reuters connection RESTORED: recoveryRate=94.2%, failedSymbols=[EXOTIC-EM-3], dataLag=620ms");
+        }
+
+        // VIX and data quality pre-open
+        logger.info("VIX pre-market: VIX=16.82, change=-0.43 (-2.49%), term_structure=[VIX1M=16.8, VIX3M=17.4, VIX6M=18.1] (contango)");
+        logger.info("Data quality pre-open: dataLag_max=380ms, dataLag_avg=95ms, gaps=0, stale_symbols=6 (exotic_EM), qualityScore=99.95%");
     
     public MarketData getMarketData(String symbol) {
         // Check if data is in cache
@@ -132,6 +141,13 @@ public class MarketDataService {
             results[i] = getMarketData(symbols[i]);
         }
         return results;
+    }
+
+    public void logMarketDataPartialFailure(String source, String[] failedSymbols) {
+        logger.error("Market data PARTIAL FAILURE: source={}, failedSymbols={}, partialRecovery=false, dataLag=890ms for affected symbols",
+            source, java.util.Arrays.toString(failedSymbols));
+        logger.warn("Using Reuters as fallback for {}-failed symbols: {}, latency_delta=+120ms vs {}",
+            source, java.util.Arrays.toString(failedSymbols), source);
     }
     
     private MarketData generateMarketData(String symbol) {

@@ -9,6 +9,7 @@ import createResetCommand from './resetCommand';
 import createShowLogActionButtonCommand from './showLogActionButton';
 import createCheckCodeLogicCommand from './checkCodeLogicCommand';
 import createAdvancedDocSearchCommand from './advancedDocSearchCommand';
+import createProductionSupportMainCommand from './productionSupportMainCommand';
 
 
 
@@ -22,5 +23,6 @@ export { createRefreshCommand,
     createResetCommand,
     createShowLogActionButtonCommand,
     createCheckCodeLogicCommand,
-    createAdvancedDocSearchCommand
+    createAdvancedDocSearchCommand,
+    createProductionSupportMainCommand
 };

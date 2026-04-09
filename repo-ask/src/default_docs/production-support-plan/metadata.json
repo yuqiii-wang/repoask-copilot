@@ -1,5 +1,5 @@
 {
-  "id": "production-support-plan-skill",
+  "id": "production-support-plan",
   "title": "Production Support Plan Skill",
   "summary": "Pre-investigation planning: calls list_log_descriptions() to discover available logs and their summaries, optionally searches internal docs via repoask_doc_check, selects relevant services, interprets the time window, and presents a human-reviewable scan plan. The user approves the plan to trigger production-support-main.",
   "type": "skill",

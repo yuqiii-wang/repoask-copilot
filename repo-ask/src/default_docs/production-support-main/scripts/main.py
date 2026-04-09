@@ -4,8 +4,7 @@ main.py — Async production log scanner (the ONLY runnable script in this skill
 
 Takes a scan plan produced by production-support-plan and runs all log ×
 time-range combinations in one async task pool, returning a merged JSON map
-of keyword -> [timestamp, ...] for every match.
-
+of log_name -> keyword -> [timestamp, ...] for every match.
 No sensitive data is sent to any remote LLM.  Only static keyword strings
 and the returned timestamp hit-list are produced; all log content stays
 server-side.
@@ -16,7 +15,16 @@ Pass the full scan plan from production-support-plan as --plan.  Each entry
 in plan["scan_tasks"] carries its own log_url, words, and time_ranges, so
 different logs can be searched for different terms simultaneously.
 
-    python scripts/main.py --plan plan.json [--seed] [--pretty] [--raw]
+    python scripts/main.py --plan plan.json [--seed] [--pretty] [--raw] \
+                            [--round N] [--max-rounds M]
+
+`--round N` (default 1) and `--max-rounds M` (default 5) track the current
+iteration of the LLM think-scan-think loop.  main.py emits "Round N/M" on
+stderr and adds a ``_meta`` key to the JSON output:
+
+    {"_meta": {"round": N, "max_rounds": M, "budget_remaining": M-N}, ...}
+
+When ``budget_remaining == 0`` the LLM must not start another round.
 
 The plan JSON structure is:
 
@@ -36,7 +44,7 @@ The plan JSON structure is:
 
 main.py validates every extracted_identifier against original_query
 (injection guard), applies guess_pattern() to convert raw tokens into safe
-regexes, and merges the results into one keyword -> [timestamps] dict.
+regexes, and merges the results into a dict grouped by log file name: log_name -> keyword -> [timestamps].
 
 Flat mode (fallback)
 --------------------
@@ -164,9 +172,35 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Pretty-print JSON output (default: True)",
     )
     p.add_argument(
+        "--source-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Project source directory scanned for log/exception/route literals. "
+            "When provided, proposed keywords not traceable to the user query "
+            "or source code are dropped before scanning."
+        ),
+    )
+    p.add_argument(
         "--raw",
         action="store_true",
         help="Emit one JSON object per task instead of a merged hit-list",
+    )
+
+    # --- Iterative-investigation round tracking ------------------------------
+    p.add_argument(
+        "--round",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Current investigation round (1-based).  Emitted in _meta.",
+    )
+    p.add_argument(
+        "--max-rounds",
+        type=int,
+        default=5,
+        metavar="M",
+        help="Maximum number of scan-and-think rounds allowed (default: 5).",
     )
     return p
 
@@ -189,7 +223,7 @@ def main() -> None:
             print(f"ERROR: could not load --plan: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        tasks = build_tasks_from_plan(plan, seed=args.seed)
+        tasks = build_tasks_from_plan(plan, seed=args.seed, source_dir=args.source_dir)
         if not tasks:
             print("ERROR: plan contains no scan_tasks.", file=sys.stderr)
             sys.exit(1)
@@ -217,6 +251,7 @@ def main() -> None:
             time_ranges_json=args.time_ranges,
             start_time=args.start_time,
             end_time=args.end_time,
+            source_dir=args.source_dir,
         )
 
         if not any(t.words for t in tasks):
@@ -227,21 +262,39 @@ def main() -> None:
             )
             sys.exit(1)
 
+    current_round = max(1, args.round)
+    max_rounds = max(1, args.max_rounds)
+    budget_remaining = max(0, max_rounds - current_round)
+
     unique_logs = len({t.log_url for t in tasks})
     print(
+        f"Round {current_round}/{max_rounds} — "
         f"Scanning {unique_logs} log(s), {len(tasks)} parallel task(s) ...",
         file=sys.stderr,
     )
+    if budget_remaining == 0:
+        print(
+            "Max rounds reached. No further iterations will be started.",
+            file=sys.stderr,
+        )
 
     results = asyncio.run(scan_all(tasks))
 
     indent = 2 if args.pretty else None
 
+    meta = {
+        "_meta": {
+            "round": current_round,
+            "max_rounds": max_rounds,
+            "budget_remaining": budget_remaining,
+        }
+    }
+
     if args.raw:
-        print(json.dumps(results, indent=indent))
+        print(json.dumps({**meta, "tasks": results}, indent=indent))
     else:
         merged = merge_hits(results)
-        print(json.dumps(merged, indent=indent))
+        print(json.dumps({**meta, **merged}, indent=indent))
 
     if all("_error" in v for v in results.values()):
         sys.exit(1)

@@ -10,4 +10,6 @@ public class BondCalculationRequest {
     private double couponRate;
     private String maturityDate;
     private double marketPrice;
+    // Maturity in years for yield curve interpolation (max supported: 30Y)
+    private int maturityYears;
 }

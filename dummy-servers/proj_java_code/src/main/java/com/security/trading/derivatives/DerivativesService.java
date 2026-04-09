@@ -50,16 +50,32 @@ public class DerivativesService {
     }
 
     public OptionPriceResult priceOption(OptionPriceRequest request) {
+        // Guard: underlying must have market data
+        if (request.getUnderlyingPrice() <= 0) {
+            logger.error("Black-Scholes calculation failed: underlying={}, exception=SecurityNotFoundException: No market data available for {}",
+                    request.getUnderlying(), request.getUnderlying());
+            return null;
+        }
+
+        // Guard: implied volatility must be in plausible range [1%, 200%]
+        double sigma = request.getImpliedVolatility();
+        if (sigma < 0.01 || sigma > 2.0) {
+            logger.warn("Volatility surface anomaly: impliedVol={} ({}bps), expected range=[0.01, 2.00], treating as stale data",
+                    String.format("%.5f", sigma),
+                    String.format("%.1f", sigma * 10_000));
+            return null;
+        }
+
         logger.info("Black-Scholes pricing: type={}, underlying={}, S={}, K={}, T=1Y, r={}%, sigma={}%",
                 request.getOptionType(), request.getUnderlying(),
                 request.getUnderlyingPrice(), request.getStrikePrice(),
                 String.format("%.4f", request.getRiskFreeRate() * 100),
-                String.format("%.2f", request.getImpliedVolatility() * 100));
+                String.format("%.2f", sigma * 100));
 
         double S = request.getUnderlyingPrice();
         double K = request.getStrikePrice();
         double r = request.getRiskFreeRate();
-        double sigma = request.getImpliedVolatility();
+        // sigma already validated and assigned above
         double T = 1.0; // 1 year assumed
 
         // Black-Scholes d1, d2
