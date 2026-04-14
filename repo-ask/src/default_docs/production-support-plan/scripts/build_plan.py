@@ -1,247 +1,243 @@
 #!/usr/bin/env python3
 """
-build_plan.py — Deterministic scan-plan JSON builder.
+build_plan.py — Resolve a search template into a concrete execution plan.
 
-Reads an LLM keyword/log proposal and an available-log listing produced by
-urls.py, then assembles the full scan_tasks plan JSON consumed by main.py.
+Reads logs.csv to discover available log sources, then for each source entry
+in the template:
 
-Arguments
----------
-  --proposal     <path>   LLM proposal JSON (proposed_keywords + proposed_logs)
-  --log-listing  <path>   Available log listing JSON (output of urls.py)
-  --source-dir   <path>   Optional: project source root for keyword validation
+  logtail  Fetches {base_url}/{component}?list, parses the HTML file list,
+           filters log files whose 17-digit filename timestamp overlaps the
+           incident time window, and emits one plan entry per qualifying file.
 
-Output
-------
-  Full plan JSON printed to stdout.  Warnings go to stderr.
+  loki     Builds a LogQL stream selector from the component tag and emits
+           one plan entry covering the full time window.
+
+Usage
+-----
+    python scripts/build_plan.py --template template.json [--out plan.json]
+    python scripts/build_plan.py < template.json            # stdin
+    python scripts/build_plan.py --help
+
+Exit codes
+----------
+  0  plan written successfully
+  1  error (printed to stderr)
 """
 
 import argparse
-import importlib.util
 import json
+import os
 import sys
 from datetime import datetime, timedelta
-from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from ._csv_utils import find_loki_row, find_logtail_row, load_csv
+from ._logtail import DEFAULT_LOOKBACK_HOURS, resolve_logtail
+from ._loki import resolve_loki
+from ._timestamps import parse_ts, to_logtail_ts
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# .env loader
 # ---------------------------------------------------------------------------
 
-def _time_range_for_ts(ts: str, before_minutes: int = 120, after_minutes: int = 60) -> dict:
-    """Return a time_range covering *before_minutes* before to *after_minutes* after *ts* (YYYYMMDDHHmm)."""
-    try:
-        dt = datetime.strptime(ts, "%Y%m%d%H%M")
-        start = dt - timedelta(minutes=before_minutes)
-        end   = dt + timedelta(minutes=after_minutes) - timedelta(milliseconds=1)
-        return {
-            "start": start.strftime("%Y-%m-%d %H:%M:%S.000"),
-            "end":   end.strftime("%Y-%m-%d %H:%M:%S.") + f"{end.microsecond // 1000:03d}",
-        }
-    except ValueError:
-        return {"start": "2000-01-01 00:00:00.000", "end": "2099-12-31 23:59:59.999"}
+def _load_env_file(path: str) -> None:
+    """Load KEY=VALUE pairs from a .env file into os.environ (no override)."""
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
 
 
-def _time_range_now(lookback_minutes: int = 120) -> dict:
-    """Return a time_range covering the last *lookback_minutes* up to now (UTC)."""
-    now = datetime.utcnow().replace(microsecond=0)
-    start = now - timedelta(minutes=lookback_minutes)
-    return {
-        "start": start.strftime("%Y-%m-%d %H:%M:%S.000"),
-        "end":   now.strftime("%Y-%m-%d %H:%M:%S.999"),
-    }
+_ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
+_load_env_file(_ENV_FILE)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+DEFAULT_CSV = os.path.join(os.path.dirname(__file__), "logs.csv")
+
+# ---------------------------------------------------------------------------
+# build_plan
+# ---------------------------------------------------------------------------
 
 
-_TS_PARSE_FMTS = [
-    "%Y-%m-%d %H:%M:%S.%f",
-    "%Y-%m-%d %H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S.%fZ",
-    "%Y-%m-%dT%H:%M:%SZ",
-    "%Y-%m-%dT%H:%M:%S.%f",
-    "%Y-%m-%dT%H:%M:%S",
-]
-
-
-def _normalize_ts(ts: str, is_end: bool = False) -> str | None:
+def build_plan(template: Dict[str, Any], csv_path: str = DEFAULT_CSV) -> Dict[str, Any]:
     """
-    Parse *ts* with any recognised format and return it in the canonical
-    'YYYY-MM-DD HH:MM:SS.mmm' format expected by the logtail server.
-    Returns None if the string cannot be parsed.
-    """
-    for fmt in _TS_PARSE_FMTS:
-        try:
-            dt = datetime.strptime(ts.strip(), fmt)
-            ms = dt.microsecond // 1000
-            return dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{ms:03d}"
-        except ValueError:
-            continue
-    return None
-
-def _load_keyword_filter():
-    """Dynamically load keyword_filter from the same directory (avoid import issues)."""
-    here = Path(__file__).parent
-    spec = importlib.util.spec_from_file_location("keyword_filter", here / "keyword_filter.py")
-    if spec is None or spec.loader is None:
-        return None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    return mod
-
-
-# ---------------------------------------------------------------------------
-# Core
-# ---------------------------------------------------------------------------
-
-def build_plan(proposal: dict, listing: list, source_dir: str | None = None) -> dict:
-    """
-    Assemble the full scan plan from the LLM proposal and the server log listing.
+    Resolve a template dict into a concrete plan dict.
 
     Parameters
     ----------
-    proposal    : dict  parsed LLM proposal JSON
-    listing     : list  parsed available-log listing from urls.py
-    source_dir  : str   optional path to project source root for keyword validation
+    template : dict
+        Parsed JSON template produced by the production-support-plan AI skill.
+    csv_path : str
+        Path to the logs.csv file that maps environments/types/tags to base URLs.
+
+    Returns
+    -------
+    dict
+        Resolved plan ready for production-support-main / main.py.
     """
-    keywords: list[str] = list(proposal.get("proposed_keywords", []))
+    rows = load_csv(csv_path)
+    env = template.get("environment", "local")
+    sources = template.get("sources", [])
 
-    # incident_time: compact YYYYMMDDHHmm timestamp from the query (may be None/"null")
-    _incident_time_raw = proposal.get("incident_time")
-    incident_time: str | None = (
-        None if not _incident_time_raw or str(_incident_time_raw).lower() in ("null", "none", "")
-        else str(_incident_time_raw).strip()
-    )
+    # Collect all keywords across sources for the top-level field.
+    all_keywords: List[str] = []
+    for src in sources:
+        for kw in src.get("keywords", []):
+            if kw not in all_keywords:
+                all_keywords.append(kw)
 
-    # proposed_logs can be:
-    #   new format – dict  {prefix: {category: {start, end}, ...}}
-    #   old format – list  [prefix, ...]
-    _raw_logs = proposal.get("proposed_logs", {})
-    if isinstance(_raw_logs, list):
-        proposed_logs_map: dict = {p: {} for p in _raw_logs}
-    elif isinstance(_raw_logs, dict):
-        proposed_logs_map = _raw_logs
-    else:
-        proposed_logs_map = {}
+    # Determine the global time window (union over all sources).
+    global_start: Optional[datetime] = None
+    global_end: Optional[datetime] = None
+    for src in sources:
+        s = parse_ts(src.get("start_time", ""))
+        e = parse_ts(src.get("end_time", ""))
+        if s:
+            global_start = s if global_start is None else min(global_start, s)
+        if e:
+            global_end = e if global_end is None else max(global_end, e)
 
-    # ── Optional keyword validation via keyword_filter ───────────────────────
-    if source_dir:
-        mod = _load_keyword_filter()
-        if mod is not None:
-            try:
-                kept, dropped = mod.filter_keywords(
-                    keywords,
-                    proposal.get("original_query", ""),
-                    source_dir,
-                )
-                if dropped:
-                    print(
-                        f"Warning: removed unverifiable keywords: {dropped}",
-                        file=sys.stderr,
-                    )
-                keywords = kept
-            except Exception as exc:
-                print(f"Warning: keyword_filter skipped ({exc})", file=sys.stderr)
-        else:
-            print("Warning: keyword_filter.py not found — skipping validation", file=sys.stderr)
+    if global_start is None:
+        global_start = datetime.utcnow() - timedelta(hours=DEFAULT_LOOKBACK_HOURS)
+    if global_end is None:
+        global_end = global_start + timedelta(hours=DEFAULT_LOOKBACK_HOURS + 1)
 
-    # ── Index listing by prefix ───────────────────────────────────────────────
-    listing_index: dict[str, list[dict]] = {
-        e["prefix"]: e.get("available", []) for e in listing
-    }
+    logs: List[Dict[str, Any]] = []
 
-    # ── Assemble scan_tasks ───────────────────────────────────────────────────
-    scan_tasks: list[dict] = []
-    for prefix, time_map in proposed_logs_map.items():
-        available = listing_index.get(prefix, [])
-        if not available:
-            print(
-                f"Warning: no available log files for prefix '{prefix}'",
-                file=sys.stderr,
-            )
+    for src in sources:
+        src_type = src.get("type", "")
+        tags = src.get("tags", [])
+        if not tags:
+            print(f"[build_plan] WARNING: source has no tags, skipping: {src}", file=sys.stderr)
             continue
-        # Collect explicit time ranges from the category map (skip template placeholders)
-        explicit_ranges = []
-        if isinstance(time_map, dict):
-            for cat_range in time_map.values():
-                if not isinstance(cat_range, dict):
-                    continue
-                start = cat_range.get("start") or None
-                end   = cat_range.get("end")   or None
-                # Skip null entries and template placeholders — incident_time / now fallback handles these
-                if not start or not end:
-                    continue
-                if "<<" in str(start) or "<<" in str(end):
-                    continue
-                # Normalize to canonical 'YYYY-MM-DD HH:MM:SS.mmm' format
-                norm_start = _normalize_ts(str(start))
-                norm_end   = _normalize_ts(str(end))
-                if not norm_start or not norm_end:
+
+        # Per-source window (falls back to global window).
+        start = parse_ts(src.get("start_time", "")) or global_start
+        end = parse_ts(src.get("end_time", "")) or global_end
+
+        ca_bundle = os.environ.get("CA_BUNDLE", "").strip() or None
+
+        if src_type == "logtail":
+            for tag in tags:
+                row = find_logtail_row(rows, env, tag)
+                if row is None:
                     print(
-                        f"WARN: unrecognised timestamp format for prefix '{prefix}': "
-                        f"start={start!r} end={end!r} — skipping, using incident_time/now fallback",
+                        f"[build_plan] WARNING: no logs.csv logtail entry for "
+                        f"env={env} tag={tag}",
                         file=sys.stderr,
                     )
                     continue
-                explicit_ranges.append({"start": norm_start, "end": norm_end})
-        for entry in available:
-            if explicit_ranges:
-                time_ranges = explicit_ranges
-            elif incident_time:
-                # Use the user-supplied incident timestamp as the scan window
-                time_ranges = [_time_range_for_ts(incident_time)]
+                logs.extend(resolve_logtail(row, {**src, "tags": [tag]}, start, end, ca_bundle=ca_bundle))
+
+        elif src_type == "loki":
+            # One Loki server per environment; tags = component labels to query.
+            row = find_loki_row(rows, env)
+            if row is None:
+                print(
+                    f"[build_plan] WARNING: no logs.csv loki entry for env={env}",
+                    file=sys.stderr,
+                )
             else:
-                # No time mentioned in the query — scan the 2-hour window ending now
-                time_ranges = [_time_range_now(lookback_minutes=120)]
-            scan_tasks.append(
-                {
-                    "log_url": entry["url"],
-                    "words": keywords,
-                    "time_ranges": time_ranges,
-                }
-            )
+                logs.extend(resolve_loki(row, src, start, end))
+
+        else:
+            print(f"[build_plan] WARNING: unknown source type '{src_type}'", file=sys.stderr)
 
     return {
-        "incident_summary":      proposal.get("incident_summary", ""),
-        "environment":           proposal.get("environment", "local"),
-        "original_query":        proposal.get("original_query", ""),
-        "incident_time":         incident_time,
-        "extracted_identifiers": proposal.get("extracted_identifiers", []),
-        "proposed_keywords":     keywords,
-        "proposed_logs":         proposed_logs_map,
-        "scan_tasks":            scan_tasks,
+        "incident_summary": template.get("incident_summary", ""),
+        "environment": env,
+        "original_query": template.get("original_query", ""),
+        "incident_time": template.get("incident_time"),
+        "time_range": {
+            "start": to_logtail_ts(global_start),
+            "end": to_logtail_ts(global_end),
+        },
+        "extracted_identifiers": template.get("extracted_identifiers", []),
+        "keywords": all_keywords,
+        "logs": logs,
+        "extra": {
+            "CA_BUNDLE": os.environ.get("CA_BUNDLE", "").strip(),
+        },
     }
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# CLI entry point
 # ---------------------------------------------------------------------------
-
-def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        description="Build scan plan JSON from LLM proposal and available log listing."
-    )
-    p.add_argument("--proposal",    required=True, help="Path to LLM proposal JSON file")
-    p.add_argument("--log-listing", required=True, help="Path to available log listing JSON file")
-    p.add_argument("--source-dir",  default=None,  help="Project source root for keyword validation")
-    return p
 
 
 def main() -> None:
-    args = _build_parser().parse_args()
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument(
+        "--template", "-t",
+        metavar="FILE",
+        help="Path to template JSON (default: read from stdin)",
+    )
+    ap.add_argument(
+        "--out", "-o",
+        metavar="FILE",
+        help="Write resolved plan JSON to FILE instead of stdout",
+    )
+    ap.add_argument(
+        "--csv",
+        metavar="FILE",
+        default=DEFAULT_CSV,
+        help=f"Override path to logs.csv (default: {DEFAULT_CSV})",
+    )
+    args = ap.parse_args()
 
+    # Load template -----------------------------------------------------------
+    if args.template:
+        try:
+            with open(args.template, encoding="utf-8") as fh:
+                template = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"[build_plan] ERROR: could not read template: {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        if sys.stdin.isatty():
+            ap.print_help()
+            print(
+                "\n[build_plan] ERROR: no --template provided and stdin is a terminal.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        try:
+            template = json.load(sys.stdin)
+        except json.JSONDecodeError as exc:
+            print(f"[build_plan] ERROR: invalid JSON on stdin: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    # Resolve -----------------------------------------------------------------
     try:
-        proposal = json.loads(Path(args.proposal).read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"Error reading proposal file: {exc}", file=sys.stderr)
+        plan = build_plan(template, csv_path=args.csv)
+    except FileNotFoundError as exc:
+        print(f"[build_plan] ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        listing = json.loads(Path(args.log_listing).read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"Error reading log listing file: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    plan = build_plan(proposal, listing, args.source_dir)
-    print(json.dumps(plan, indent=2, ensure_ascii=False))
+    # Output ------------------------------------------------------------------
+    out_text = json.dumps(plan, indent=2)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(out_text)
+        print(f"[build_plan] Plan written to {args.out} ({len(plan['logs'])} log entries)", file=sys.stderr)
+    else:
+        print(out_text)
 
 
 if __name__ == "__main__":

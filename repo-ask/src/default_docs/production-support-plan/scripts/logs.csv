@@ -1,0 +1,3 @@
+environment|type|tags|base_url|summary
+local|logtail|trading-system|https://127.0.0.1:8093/logTail|Core OMS and order-lifecycle events — order submissions, fills, cancellations, and routing decisions.
+local|loki|app-logs|http://127.0.0.1:8094|All trading system logs aggregated via Loki — query any component with LogQL stream selectors.

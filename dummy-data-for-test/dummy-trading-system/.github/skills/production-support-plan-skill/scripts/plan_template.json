@@ -1,0 +1,23 @@
+{
+  "__instructions": [
+    "Fill every field below according to the user request and available log listing.",
+    "Return ONLY the populated JSON object — no markdown, no explanation.",
+    "Remove this '__instructions' key from your output.",
+    "incident_time: compact YYYYMMDDHHmm timestamp of the incident extracted from the user query (e.g. 202604010930). Use null if no specific time was mentioned.",
+    "proposed_keywords: only exact words present in the user query OR literal strings from source-code logger/exception statements.",
+    "proposed_logs: For Loki mode, keys can be stream identifiers (e.g. 'app-logs') or log prefixes. For Logtail mode, keys MUST be exact 'prefix' values from the Available Log Listing. Each value is an object whose keys are relevant category labels (e.g. 'Strategy', 'error') and whose values are {start, end} timestamp objects in 'YYYY-MM-DD HH:MM:SS.mmm' format (e.g. \"2026-04-01 08:00:00.000\"). Use null for unknown timestamps.",
+    "extracted_identifiers: raw sensitive tokens from the query (ISINs, trade IDs, order IDs, etc.)."
+  ],
+  "incident_summary": "<<one-sentence description of the incident>>",
+  "environment": "<<environment name, e.g. local | staging | prod>>",
+  "original_query": "<<verbatim user query text>>",
+  "incident_time": "<<YYYYMMDDHHmm compact timestamp from the query, or null>>",
+  "extracted_identifiers": ["<<raw identifier token, e.g. US0378331005>>"],
+  "proposed_keywords": ["<<exact word from user query or source-code log/exception text>>"],
+  "proposed_logs": {
+    "<<log identifier from Available Log Listing or Loki Streams>>": {
+      "<<category label, e.g. Strategy>>": { "start": "<<ISO-8601 or null>>", "end": "<<ISO-8601 or null>>" },
+      "<<category label, e.g. error>>": { "start": "<<ISO-8601 or null>>", "end": "<<ISO-8601 or null>>" }
+    }
+  }
+}

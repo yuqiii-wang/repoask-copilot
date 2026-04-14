@@ -23,3 +23,5 @@ nohup.out
 dummy-servers/proj_java_code/.github/prompts
 dummy-servers/proj_java_code/.github/skills
 dummy_data.json
+logs
+.run

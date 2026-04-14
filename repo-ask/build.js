@@ -25,6 +25,15 @@ function copyDir(src, dest) {
     }
 }
 
+// Remove out directory
+function removeOutDir() {
+    const outDir = path.join(__dirname, 'out');
+    if (fs.existsSync(outDir)) {
+        fs.rmSync(outDir, { recursive: true, force: true });
+        console.log('Removed out directory');
+    }
+}
+
 // Copy static assets
 function copyAssets() {
     copyFile('src/sidebar/styles.css', 'out/sidebar/styles.css');
@@ -58,6 +67,7 @@ const sidebarConfig = {
 };
 
 async function build() {
+    removeOutDir();
     copyAssets();
 
     if (isWatch) {

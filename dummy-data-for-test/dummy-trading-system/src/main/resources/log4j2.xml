@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+
+    <!--
+        ${startup} is evaluated ONCE when Log4j2 loads this config (i.e. on every JVM start).
+        Every active log fileName carries this suffix so each Spring Boot restart produces
+        a fresh, clearly-identified set of log files.
+        Example:  settlement-processing-20260411130542123.log
+    -->
+    <Properties>
+        <Property name="startup">${date:yyyyMMddHHmmssSSS}</Property>
+        <Property name="pattern">%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</Property>
+    </Properties>
+
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${pattern}"/>
+        </Console>
+
+        <!-- Main / catch-all -->
+        <RollingFile name="TradingSystemLog"
+                     fileName="logs/trading-system-${startup}.log"
+                     filePattern="logs/trading-system-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <!-- Shared WARN/ERROR across all services -->
+        <RollingFile name="ErrorScenariosLog"
+                     fileName="logs/error-scenarios-${startup}.log"
+                     filePattern="logs/error-scenarios-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <ThresholdFilter level="WARN" onMatch="ACCEPT" onMismatch="DENY"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <!-- Per-service log files -->
+        <RollingFile name="SettlementLog"
+                     fileName="logs/settlement-processing-${startup}.log"
+                     filePattern="logs/settlement-processing-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="RiskManagementLog"
+                     fileName="logs/risk-management-${startup}.log"
+                     filePattern="logs/risk-management-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="MarketDataLog"
+                     fileName="logs/market-data-sync-${startup}.log"
+                     filePattern="logs/market-data-sync-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="OmsLog"
+                     fileName="logs/oms-${startup}.log"
+                     filePattern="logs/oms-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="AlgoLog"
+                     fileName="logs/algo-trading-${startup}.log"
+                     filePattern="logs/algo-trading-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="DerivativesLog"
+                     fileName="logs/derivatives-${startup}.log"
+                     filePattern="logs/derivatives-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="FixedIncomeLog"
+                     fileName="logs/fixed-income-${startup}.log"
+                     filePattern="logs/fixed-income-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="FxLog"
+                     fileName="logs/fx-trading-${startup}.log"
+                     filePattern="logs/fx-trading-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="EquityLog"
+                     fileName="logs/equity-trading-${startup}.log"
+                     filePattern="logs/equity-trading-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="LedgerLog"
+                     fileName="logs/ledger-${startup}.log"
+                     filePattern="logs/ledger-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="50MB"/></Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="ChaosLog"
+                     fileName="logs/chaos-faults-${startup}.log"
+                     filePattern="logs/chaos-faults-%d{yyyy-MM-dd}-%i.log.gz"
+                     createOnDemand="true">
+            <PatternLayout pattern="${pattern}"/>
+            <Policies><SizeBasedTriggeringPolicy size="10MB"/></Policies>
+            <DefaultRolloverStrategy max="7"/>
+        </RollingFile>
+    </Appenders>
+
+    <Loggers>
+        <!--
+            Logger names match the class passed to LogManager.getLogger(...) in each service impl.
+            e.g. SettlementServiceImpl uses LogManager.getLogger(SettlementService.class)
+                 → logger name = com.security.trading.service.SettlementService
+        -->
+
+        <Logger name="com.security.trading.service.SettlementService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="SettlementLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.RiskService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="RiskManagementLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.MarketDataService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="MarketDataLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.OmsService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="OmsLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.AlgoService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="AlgoLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.DerivativesService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="DerivativesLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.FixedIncomeService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FixedIncomeLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.FxService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="FxLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.EquityTradingService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="EquityLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.service.LedgerService" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="LedgerLog"/>
+            <AppenderRef ref="SettlementLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Logger name="com.security.trading.chaos" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="ChaosLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <!-- Catch-all for controllers, config, application startup, etc. -->
+        <Logger name="com.security.trading" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="TradingSystemLog"/>
+            <AppenderRef ref="ErrorScenariosLog"/>
+        </Logger>
+
+        <Root level="INFO">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="TradingSystemLog"/>
+        </Root>
+    </Loggers>
+</Configuration>

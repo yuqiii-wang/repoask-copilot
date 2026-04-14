@@ -1,23 +1,10 @@
 {
-  "__instructions": [
-    "Fill every field below according to the user request and available log listing.",
-    "Return ONLY the populated JSON object — no markdown, no explanation.",
-    "Remove this '__instructions' key from your output.",
-    "incident_time: compact YYYYMMDDHHmm timestamp of the incident extracted from the user query (e.g. 202604010930). Use null if no specific time was mentioned.",
-    "proposed_keywords: only exact words present in the user query OR literal strings from source-code logger/exception statements.",
-    "proposed_logs: keys MUST be exact 'prefix' values taken from the runtime Available Log Listing — never invent log names. Each value is an object whose keys are relevant category labels (e.g. 'Strategy', 'error') and whose values are {start, end} timestamp objects in 'YYYY-MM-DD HH:MM:SS.mmm' format (e.g. \"2026-04-01 08:00:00.000\"). Use null for unknown timestamps.",
-    "extracted_identifiers: raw sensitive tokens from the query (ISINs, trade IDs, order IDs, etc.)."
-  ],
-  "incident_summary": "<<one-sentence description of the incident>>",
-  "environment": "<<environment name, e.g. local | staging | prod>>",
-  "original_query": "<<verbatim user query text>>",
-  "incident_time": "<<YYYYMMDDHHmm compact timestamp from the query, or null>>",
-  "extracted_identifiers": ["<<raw identifier token, e.g. US0378331005>>"],
-  "proposed_keywords": ["<<exact word from user query or source-code log/exception text>>"],
-  "proposed_logs": {
-    "<<exact prefix from Available Log Listing>>": {
-      "<<category label, e.g. Strategy>>": { "start": "<<ISO-8601 or null>>", "end": "<<ISO-8601 or null>>" },
-      "<<category label, e.g. error>>": { "start": "<<ISO-8601 or null>>", "end": "<<ISO-8601 or null>>" }
-    }
-  }
+  "__instructions": "Fill ALL fields below for the user's incident query. Rules: (1) proposed_logs keys must be exact prefix values from the Available Log Listing — do NOT invent names. (2) proposed_keywords must be lowercase technical terms implying the failure mode (e.g. 'timeout', 'exception', 'rejected'). (3) incident_time in YYYYMMDDHHmmss or null if unspecified. (4) environment must match the Available Logtail Listing. Omit this __instructions key from your output.",
+  "incident_summary": "",
+  "environment": "local",
+  "original_query": "",
+  "incident_time": null,
+  "extracted_identifiers": [],
+  "proposed_keywords": [],
+  "proposed_logs": {}
 }

@@ -12,10 +12,12 @@ const PROD_MAIN_ID = 'production-support-main';
 // ---------------------------------------------------------------------------
 // Python discovery — avoids the Windows Store 'python' alias
 // ---------------------------------------------------------------------------
-let _cachedPython: string | null = null;
+let cachedPython: string | null = null;
 
 async function findPython(): Promise<string> {
-    if (_cachedPython) return _cachedPython;
+    if (cachedPython) {
+        return cachedPython;
+    }
     const candidates = [
         process.env.PYTHON_PATH,
         'python3',
@@ -24,7 +26,7 @@ async function findPython(): Promise<string> {
     for (const cmd of candidates) {
         try {
             await execFileAsync(cmd, ['--version'], { timeout: 5_000 });
-            _cachedPython = cmd;
+            cachedPython = cmd;
             return cmd;
         } catch { /* try next */ }
     }
@@ -64,8 +66,12 @@ async function runLLMWithTools(
     const tools: any[] = (Array.isArray(vscodeApi.lm?.tools) ? [...vscodeApi.lm.tools] : [])
         .filter((t: any) => {
             const s = t?.inputSchema;
-            if (!s) return true;                                   // no schema — ok
-            if (s.type === 'object' && !s.properties) return false; // invalid
+            if (!s) {
+                return true;                                   // no schema — ok
+            }
+            if (s.type === 'object' && !s.properties) {
+                return false; // invalid
+            }
             return true;
         });
     let messages = [...initialMessages];
@@ -78,7 +84,9 @@ async function runLLMWithTools(
             LLM_RESPONSE_TIMEOUT_MS,
             null
         );
-        if (!llmResp) break;
+        if (!llmResp) {
+            break;
+        }
 
         const assistantParts: any[] = [];
         const toolCalls: any[] = [];
@@ -94,7 +102,9 @@ async function runLLMWithTools(
             }
         }
 
-        if (toolCalls.length === 0) break;
+        if (toolCalls.length === 0) {
+            break;
+        }
 
         // Append assistant turn (text + tool calls) to history
         messages = [
@@ -191,11 +201,15 @@ function ensureDefaultSkills(
     }
 
     const workspaceRoot = vscodeApi.workspace.workspaceFolders?.[0]?.uri?.fsPath;
-    if (!workspaceRoot) return;
+    if (!workspaceRoot) {
+        return;
+    }
 
     for (const id of DEFAULT_IDS) {
         const meta = allMeta.find((m: any) => String(m.id) === id);
-        if (!meta) continue;
+        if (!meta) {
+            continue;
+        }
         const safeTitle = sanitizeSkillTitle(meta.title || id);
         const skillFilePath = path.join(workspaceRoot, '.github', 'skills', safeTitle, 'SKILL.md');
         if (!fs.existsSync(skillFilePath)) {
@@ -284,11 +298,15 @@ async function runProductionSupportCommand(
         response.markdown(`> Log discovery: found **${logListing.length}** log prefix(es) with available files.\n\n`);
         logListingLines.push(
             '## Available Log Listing',
+            '<details>',
+            '<summary>Click to expand available log files</summary>',
+            '',
             'The following log files are currently available on the server.',
             'Use the exact `prefix` values from this listing in `proposed_logs` — do NOT fabricate prefixes.',
             '```json',
             JSON.stringify(logListing, null, 2),
-            '```'
+            '```',
+            '</details>'
         );
     } else {
         const reason = fetchError || 'unknown error';
@@ -381,13 +399,19 @@ async function runProductionSupportCommand(
     // Show the populated template as a clean JSON block (no streaming noise)
     const populatedJson = extractJsonBlock(accumulatedOutput);
     if (populatedJson) {
-        response.markdown(`**Populated Plan**\n\`\`\`json\n${JSON.stringify(populatedJson, null, 2)}\n\`\`\`\n\n`);
+        response.markdown(
+            `<details>\n` +
+            `<summary>**Populated Plan** (click to expand)</summary>\n\n` +
+            `\`\`\`json\n${JSON.stringify(populatedJson, null, 2)}\n\`\`\`\n\n` +
+            `</details>\n\n`
+        );
     } else {
         response.markdown(`> Could not extract plan JSON from LLM output.\n\n`);
     }
 
     // ── 4. Build scan plan via Python tool (best-effort, silent) ────────────
     const proposalJson = normalizeProposal(populatedJson);
+    // eslint-disable-next-line @typescript-eslint/naming-convention
     let planToSave: any = { original_query: prompt, scan_tasks: [] };
 
     if (proposalJson) {
@@ -406,17 +430,24 @@ async function runProductionSupportCommand(
         );
 
         if (buildError) {
-            response.markdown(`> **Plan builder warnings:** ${buildError}\n\n`);
+            response.markdown(
+                `<details>\n` +
+                `<summary>**Plan builder warnings** (click to expand)</summary>\n\n` +
+                `${buildError}\n\n` +
+                `</details>\n\n`
+            );
         }
 
         if (planJson) {
             // Carry proposed_keywords + proposed_logs forward so main.py can use
             // them directly to screen logs, even if scan_tasks are rebuilt later.
+            /* eslint-disable @typescript-eslint/naming-convention */
             planToSave = {
                 ...planJson,
                 proposed_keywords: proposalJson.proposed_keywords ?? [],
                 proposed_logs:     proposalJson.proposed_logs     ?? {},
             };
+            /* eslint-enable @typescript-eslint/naming-convention */
             const taskCount = Array.isArray(planJson.scan_tasks) ? planJson.scan_tasks.length : 0;
             if (taskCount > 0) {
                 response.markdown(`\n> Scan plan ready — **${taskCount}** task(s) queued. Click Continue to run.\n\n`);
@@ -498,6 +529,7 @@ async function runProductionSupportMainSkill(
                 .split(/\s+/).map((w: string) => w.toLowerCase())
                 .filter((w: string) => w.length >= 3);
             const allPrefixes = (freshListing || []).map((e: any) => e.prefix);
+            /* eslint-disable @typescript-eslint/naming-convention */
             proposalToUse = {
                 incident_summary: planJson.original_query || '',
                 environment: 'local',
@@ -506,6 +538,7 @@ async function runProductionSupportMainSkill(
                 proposed_keywords: queryTokens.slice(0, 12),
                 proposed_logs: Object.fromEntries(allPrefixes.map((p: string) => [p, {}])),
             };
+            /* eslint-enable @typescript-eslint/naming-convention */
             try { fs.writeFileSync(proposalPath, JSON.stringify(proposalToUse, null, 2), 'utf8'); } catch { /* non-fatal */ }
         }
 
@@ -559,12 +592,90 @@ async function runProductionSupportMainSkill(
     const mainScriptsDir = resolveScriptsDir(extensionPath, PROD_MAIN_ID);
     const mainPyPath     = path.join(mainScriptsDir, 'main.py');
 
+    // ── 2a. Optional: Ingest logs into Loki (experimental) ───────────────────
+    // Uncomment this block to enable Loki mode - requires Loki server running on port 8094
+    // const workspaceRoot = vscodeApi.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+    // if (workspaceRoot) {
+    //     const ingestScriptPath = path.join(workspaceRoot, 'dummy-servers', 'loki_server', 'ingest_logs.py');
+    //     if (fs.existsSync(ingestScriptPath)) {
+    //         emitThinking(response, 'Ingesting logs into Loki...');
+    //         const { error: ingestError } = await runPythonScript(
+    //             ingestScriptPath,
+    //             [],
+    //             { cwd: path.dirname(ingestScriptPath), timeoutMs: 60_000 }
+    //         );
+    //         if (ingestError) {
+    //             response.markdown(`> **Loki ingestion warning:** ${ingestError}\n\n`);
+    //         } else {
+    //             response.markdown(`> ✓ Logs ingested into Loki successfully\n\n`);
+    //         }
+    //     }
+    // }
+
     emitThinking(response, 'Running log scanner (main.py)...');
     const { data: scanData, error: scanError } = await runPythonScript(
         mainPyPath,
         ['--plan', pendingPlanPath],
         { cwd: mainScriptsDir, timeoutMs: 120_000 }
     );
+
+    // Extract and display query information from stderr
+    if (scanError) {
+        const queriesMatch = scanError.match(/QUERIES_START\n([\s\S]*?)\nQUERIES_END/);
+        if (queriesMatch) {
+            try {
+                const queryInfo = JSON.parse(queriesMatch[1]);
+                let queryDisplay = `### 🔍 Executed Queries\n\n`;
+                queryDisplay += `**Backend:** ${queryInfo.backend === 'loki' ? 'Loki (LogQL)' : 'Logtail (HTTP)'}\n\n`;
+                
+                if (queryInfo.backend === 'loki') {
+                    queryDisplay += `**Base URL:** \`${queryInfo.base_url}\`\n\n`;
+                    queryDisplay += `<details>\n<summary>**${queryInfo.queries.length} Loki Query(ies)** (click to expand)</summary>\n\n`;
+                    
+                    queryInfo.queries.forEach((q: any, idx: number) => {
+                        queryDisplay += `**Query ${idx + 1}:**\n`;
+                        
+                        // Format as JSON for Loki queries
+                        const queryJson: any = {
+                            query: q.logql || q.stream_selector,
+                            start: q.start_time,
+                            end: q.end_time,
+                            limit: 5000,
+                            direction: 'forward'
+                        };
+                        if (q.keywords) {
+                            queryJson.keywords = q.keywords;
+                        }
+                        
+                        queryDisplay += `\`\`\`json\n${JSON.stringify(queryJson, null, 2)}\n\`\`\`\n`;
+                        if (q.description) {
+                            queryDisplay += `_${q.description}_\n`;
+                        }
+                        queryDisplay += `\n`;
+                    });
+                    queryDisplay += `</details>\n\n`;
+                } else {
+                    queryDisplay += `<details>\n<summary>**${queryInfo.queries.length} HTTP Query(ies)** (click to expand)</summary>\n\n`;
+                    
+                    queryInfo.queries.forEach((q: any, idx: number) => {
+                        queryDisplay += `**Query ${idx + 1}:** ${q.component}\n`;
+                        // Decode URL encoding
+                        const decodedUrl = decodeURIComponent(q.url);
+                        queryDisplay += `\`\`\`\n${decodedUrl}\n\`\`\`\n`;
+                        if (q.description) {
+                            queryDisplay += `_${q.description}_\n`;
+                        }
+                        queryDisplay += `\n`;
+                    });
+                    queryDisplay += `</details>\n\n`;
+                }
+                
+                response.markdown(queryDisplay);
+            } catch (e) {
+                // If parsing fails, just continue without displaying queries
+            }
+        }
+    }
 
     const scanResultJson = scanData ? JSON.stringify(scanData, null, 2) : '';
 
@@ -576,9 +687,23 @@ async function runProductionSupportMainSkill(
         return;
     }
 
-    response.markdown(`**Scanner output (keyword hit-list)**\n\`\`\`json\n${scanResultJson}\n\`\`\`\n\n`);
+    response.markdown(
+        `<details open>\n` +
+        `<summary>**Scanner output (keyword hit-list)** — Click to collapse</summary>\n\n` +
+        `\`\`\`json\n${scanResultJson}\n\`\`\`\n\n` +
+        `</details>\n\n`
+    );
     if (scanError) {
-        response.markdown(`**Scanner warnings**\n\`\`\`\n${scanError}\n\`\`\`\n\n`);
+        // Remove query info markers from stderr before displaying
+        const cleanedError = scanError.replace(/QUERIES_START\n[\s\S]*?\nQUERIES_END\n?/g, '').trim();
+        if (cleanedError) {
+            response.markdown(
+                `<details>\n` +
+                `<summary>**Scanner warnings** (click to expand)</summary>\n\n` +
+                `\`\`\`\n${cleanedError}\n\`\`\`\n\n` +
+                `</details>\n\n`
+            );
+        }
     }
 
     // ── 3. LLM root-cause analysis ────────────────────────────────────────────
@@ -643,23 +768,29 @@ async function runProductionSupportMainSkill(
  * Returns null when no usable keywords can be found.
  */
 function normalizeProposal(obj: any): any | null {
-    if (!obj || typeof obj !== 'object') return null;
+    if (!obj || typeof obj !== 'object') {
+        return null;
+    }
     const keywords: string[] =
         obj.proposed_keywords ?? obj.keywords ?? obj.words ??
         obj.search_keywords ?? obj.scan_keywords ?? [];
     const logs =
         obj.proposed_logs ?? obj.logs ?? obj.log_prefixes ??
         obj.selected_logs ?? obj.log_names ?? {};
-    if (!Array.isArray(keywords) || keywords.length === 0) return null;
+    if (!Array.isArray(keywords) || keywords.length === 0) {
+        return null;
+    }
     const normalizedLogs =
         Array.isArray(logs) ? Object.fromEntries(logs.map((p: string) => [p, {}]))
         : (typeof logs === 'object' && logs !== null) ? logs
         : {};
+    /* eslint-disable @typescript-eslint/naming-convention */
     return {
         ...obj,
         proposed_keywords: keywords,
         proposed_logs: normalizedLogs,
     };
+    /* eslint-enable @typescript-eslint/naming-convention */
 }
 
 /**
@@ -671,18 +802,27 @@ function extractJsonBlock(text: string): any | null {
     const candidate = fenceMatch ? fenceMatch[1] : text;
 
     const start = candidate.indexOf('{');
-    if (start === -1) return null;
+    if (start === -1) {
+        return null;
+    }
 
     let depth = 0;
     let end = -1;
     for (let i = start; i < candidate.length; i++) {
-        if (candidate[i] === '{') depth++;
+        if (candidate[i] === '{') {
+            depth++;
+        }
         else if (candidate[i] === '}') {
             depth--;
-            if (depth === 0) { end = i; break; }
+            if (depth === 0) {
+                end = i;
+                break;
+            }
         }
     }
-    if (end === -1) return null;
+    if (end === -1) {
+        return null;
+    }
 
     try {
         return JSON.parse(candidate.slice(start, end + 1));

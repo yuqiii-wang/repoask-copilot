@@ -1,0 +1,6 @@
+# Docker volumes
+loki-data/
+grafana-data/
+
+# Promtail positions
+positions.yaml
